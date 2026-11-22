@@ -1,0 +1,49 @@
+{
+  "name": "@ookf/api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"API lint placeholder — ESLint will be wired in Phase 7\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "seed": "tsx src/jobs/seed.ts",
+    "create-admin": "tsx src/jobs/create-admin.ts"
+  },
+  "dependencies": {
+    "@ookf/shared": "workspace:*",
+    "argon2": "^0.41.1",
+    "cloudinary": "^2.11.0",
+    "connect-mongo": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.19.0",
+    "helmet": "^8.0.0",
+    "mongoose": "^8.12.1",
+    "morgan": "^1.10.0",
+    "multer": "^2.5.0",
+    "stripe": "^17.7.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/express-session": "^1.19.0",
+    "@types/morgan": "^1.9.9",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^22.13.10",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}

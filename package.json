@@ -1,0 +1,24 @@
+{
+  "name": "one-of-a-kind-fashion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ONE OF A KIND FASHION — Canadian ethnic fashion e-commerce platform",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "concurrently -n api,web -c magenta,cyan \"npm run dev --prefix apps/api\" \"npm run dev --prefix apps/web\"",
+    "dev:web": "npm run dev --prefix apps/web",
+    "dev:api": "npm run dev --prefix apps/api",
+    "build": "npm run build --prefix packages/shared && npm run build --prefix apps/api && npm run build --prefix apps/web",
+    "lint": "npm run lint --prefix apps/web",
+    "test": "npm run test --prefix packages/shared && npm run test --prefix apps/api",
+    "typecheck": "npm run typecheck --prefix packages/shared && npm run typecheck --prefix apps/api && npm run typecheck --prefix apps/web",
+    "seed": "npm run seed --prefix apps/api",
+    "create-admin": "npm run create-admin --prefix apps/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
