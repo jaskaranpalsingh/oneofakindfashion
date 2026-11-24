@@ -56,10 +56,29 @@ const storeSettingsSchema = new Schema(
       tiktok: String,
     },
     shipping: {
-      standardCents: { type: Number, default: 1500 },
-      expressCents: { type: Number, default: 2500 },
+      standardCents: { type: Number, default: 1499 },
+      expressCents: { type: Number, default: 2499 },
       freeShippingMinimumCents: { type: Number, default: 20000 },
       localPickupEnabled: { type: Boolean, default: true },
+      standardEta: {
+        type: String,
+        default: "3–7 business days",
+      },
+      expressEta: {
+        type: String,
+        default: "1–3 business days",
+      },
+      pickupInstructions: {
+        type: String,
+        default:
+          "We will confirm pickup readiness by phone or email after your order is paid.",
+      },
+      pickupHours: {
+        type: String,
+        default: "By appointment — confirmed after payment",
+      },
+      processingDays: { type: Number, default: 2, min: 0, max: 30 },
+      handlingDays: { type: Number, default: 1, min: 0, max: 14 },
     },
     taxRules: [
       {

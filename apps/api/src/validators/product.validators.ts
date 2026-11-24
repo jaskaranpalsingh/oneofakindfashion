@@ -1,4 +1,4 @@
-import { ProductStatus, ProductType } from "@ookf/shared";
+import { ProductStatus, ProductType, ShippingClass } from "@ookf/shared";
 import { z } from "zod";
 
 const imageUrlSchema = z
@@ -57,13 +57,29 @@ export const createProductSchema = z.object({
   images: z
     .array(
       z.object({
+        id: z.string().optional(),
         url: imageUrlSchema,
         publicId: z.string().optional(),
-        alt: z.string().optional(),
-        sortOrder: z.number().int().optional(),
+        alt: z.string().max(200).optional(),
+        sortOrder: z.number().int().min(0).optional(),
+        isPrimary: z.boolean().optional(),
       })
     )
+    .max(6, "A product can have at most 6 images")
     .optional(),
+  isPhysical: z.boolean().optional(),
+  weightGrams: z.number().min(0).optional(),
+  weightUnit: z.enum(["g", "kg"]).optional(),
+  dimensionsCm: z
+    .object({
+      length: z.number().min(0).optional(),
+      width: z.number().min(0).optional(),
+      height: z.number().min(0).optional(),
+    })
+    .optional(),
+  shippingClass: z.nativeEnum(ShippingClass).optional(),
+  freeShippingEligible: z.boolean().optional(),
+  additionalHandlingCents: z.number().int().min(0).optional(),
   clothing: z
     .object({
       fabric: z.string().optional(),

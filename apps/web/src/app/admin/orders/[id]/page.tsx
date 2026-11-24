@@ -36,7 +36,9 @@ type OrderDetail = {
   paymentStatus: string;
   fulfillmentStatus: string;
   trackingNumber: string | null;
+  trackingUrl?: string | null;
   shippingCarrier: string | null;
+  customerNotes: string | null;
   internalNotes: string | null;
   createdAt: string;
 };
@@ -45,8 +47,16 @@ const FULFILLMENT_OPTIONS = [
   "pending_payment",
   "awaiting_fulfillment",
   "processing",
+  "packed",
   "shipped",
+  "in_transit",
+  "out_for_delivery",
   "delivered",
+  "delivery_exception",
+  "returned",
+  "preparing_pickup",
+  "ready_for_pickup",
+  "collected",
   "cancelled",
 ] as const;
 
@@ -55,6 +65,7 @@ export default function AdminOrderDetailPage() {
   const queryClient = useQueryClient();
   const [fulfillmentStatus, setFulfillmentStatus] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingUrl, setTrackingUrl] = useState("");
   const [shippingCarrier, setShippingCarrier] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -67,6 +78,7 @@ export default function AdminOrderDetailPage() {
       );
       setFulfillmentStatus(order.fulfillmentStatus);
       setTrackingNumber(order.trackingNumber ?? "");
+      setTrackingUrl(order.trackingUrl ?? "");
       setShippingCarrier(order.shippingCarrier ?? "");
       setInternalNotes(order.internalNotes ?? "");
       return order;
@@ -80,6 +92,7 @@ export default function AdminOrderDetailPage() {
         body: JSON.stringify({
           fulfillmentStatus,
           trackingNumber,
+          trackingUrl,
           shippingCarrier,
           internalNotes,
         }),
@@ -233,6 +246,25 @@ export default function AdminOrderDetailPage() {
                 className="mt-1 w-full border border-border px-3 py-2 text-sm"
               />
             </label>
+
+            <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+              Tracking URL
+              <input
+                value={trackingUrl}
+                onChange={(event) => setTrackingUrl(event.target.value)}
+                className="mt-1 w-full border border-border px-3 py-2 text-sm"
+                placeholder="https://"
+              />
+            </label>
+
+            {order.customerNotes ? (
+              <div className="border border-border bg-ivory px-3 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                  Customer notes
+                </p>
+                <p className="mt-1 text-sm text-ink">{order.customerNotes}</p>
+              </div>
+            ) : null}
 
             <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-muted">
               Internal notes

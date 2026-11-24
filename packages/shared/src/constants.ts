@@ -36,6 +36,47 @@ export const CANADIAN_PROVINCES = [
 
 export const CLOTHING_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "CUSTOM"] as const;
 
+export const SHIPPING_CLASS_LABELS: Record<string, string> = {
+  standard_clothing: "Standard Clothing",
+  heavy_bridal: "Heavy Bridal Wear",
+  jewellery: "Jewellery",
+  oversized: "Oversized Packages",
+};
+
+/** Default Canada shipping zone templates (admin can edit). */
+export const DEFAULT_CANADA_SHIPPING_ZONES = [
+  {
+    key: "alberta",
+    name: "Zone 1 — Alberta",
+    provinces: ["AB"],
+    sortOrder: 1,
+  },
+  {
+    key: "west_prairies",
+    name: "Zone 2 — BC, Saskatchewan & Manitoba",
+    provinces: ["BC", "SK", "MB"],
+    sortOrder: 2,
+  },
+  {
+    key: "central",
+    name: "Zone 3 — Ontario & Quebec",
+    provinces: ["ON", "QC"],
+    sortOrder: 3,
+  },
+  {
+    key: "atlantic",
+    name: "Zone 4 — Atlantic Canada",
+    provinces: ["NB", "NL", "NS", "PE"],
+    sortOrder: 4,
+  },
+  {
+    key: "territories",
+    name: "Zone 5 — Territories",
+    provinces: ["YT", "NT", "NU"],
+    sortOrder: 5,
+  },
+] as const;
+
 export const API_VERSION = "v1";
 export const DEFAULT_PAGE_SIZE = 24;
 export const MAX_PAGE_SIZE = 100;

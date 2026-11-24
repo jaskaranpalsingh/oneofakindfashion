@@ -99,8 +99,29 @@ function eachEdmontonDay(from: Date, to: Date) {
   return days;
 }
 
+function startOfMonthEdmonton(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const year = Number(parts.find((p) => p.type === "year")?.value);
+  const month = Number(parts.find((p) => p.type === "month")?.value);
+  const probe = new Date(Date.UTC(year, month - 1, 1, 12, 0, 0));
+  const hourInTz = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: TIMEZONE,
+      hour: "2-digit",
+      hour12: false,
+    }).format(probe)
+  );
+  const offsetHours = 12 - hourInTz;
+  return new Date(Date.UTC(year, month - 1, 1, offsetHours, 0, 0, 0));
+}
+
 export async function getDashboardSummary() {
   const todayStart = startOfTodayEdmonton();
+  const monthStart = startOfMonthEdmonton();
 
   const [
     revenueAgg,
@@ -111,6 +132,9 @@ export async function getDashboardSummary() {
     pendingPaymentCount,
     awaitingFulfillmentCount,
     customerCount,
+    customersToday,
+    customersThisMonth,
+    customersWithOrders,
     productCount,
     publishedProductCount,
     draftProductCount,
@@ -171,6 +195,20 @@ export async function getDashboardSummary() {
       role: UserRole.CUSTOMER,
       deletedAt: null,
     }),
+    UserModel.countDocuments({
+      role: UserRole.CUSTOMER,
+      deletedAt: null,
+      createdAt: { $gte: todayStart },
+    }),
+    UserModel.countDocuments({
+      role: UserRole.CUSTOMER,
+      deletedAt: null,
+      createdAt: { $gte: monthStart },
+    }),
+    OrderModel.distinct("userId", {
+      userId: { $ne: null },
+      paymentStatus: { $in: PAID_STATUSES },
+    }).then((ids) => ids.length),
     ProductModel.countDocuments({ deletedAt: null }),
     ProductModel.countDocuments({
       deletedAt: null,
@@ -247,7 +285,14 @@ export async function getDashboardSummary() {
       revenueCents: todayRevenue.totalCents ?? 0,
       paidOrders: todayRevenue.count ?? 0,
     },
-    customers: { total: customerCount },
+    customers: {
+      total: customerCount,
+      newToday: customersToday,
+      newThisMonth: customersThisMonth,
+      withCompletedOrders: customersWithOrders,
+      returning: Math.max(0, customersWithOrders),
+      revenueCents: netSalesCents,
+    },
     products: {
       total: productCount,
       published: publishedProductCount,

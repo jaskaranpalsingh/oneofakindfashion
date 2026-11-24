@@ -16,24 +16,26 @@ export function CouponForm({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!code.trim()) return;
+  async function handleApply() {
+    if (!code.trim() || pending) return;
     setPending(true);
     setError(null);
     setSuccess(null);
     try {
       await onApply(code.trim());
-      setSuccess("Coupon applied");
+      setSuccess("Coupon applied successfully.");
       setCode("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to apply coupon");
+      setError(
+        err instanceof Error ? err.message : "Unable to apply coupon."
+      );
     } finally {
       setPending(false);
     }
   }
 
   async function handleRemove() {
+    if (pending) return;
     setPending(true);
     setError(null);
     setSuccess(null);
@@ -56,7 +58,11 @@ export function CouponForm({
           <button
             type="button"
             disabled={pending}
-            onClick={() => void handleRemove()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void handleRemove();
+            }}
             className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687170] hover:text-[#003F2D]"
           >
             Remove
@@ -67,20 +73,35 @@ export function CouponForm({
     );
   }
 
+  // Use a div (not <form>) so this works inside the checkout <form> without nested-form bugs.
   return (
-    <form onSubmit={handleSubmit} className="mt-5 space-y-2">
+    <div className="mt-5 space-y-2">
       <div className="flex gap-2">
         <input
           value={code}
           onChange={(event) => setCode(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.stopPropagation();
+              void handleApply();
+            }
+          }}
           placeholder="Coupon code"
           className="h-11 flex-1 border border-[#E7E2D9] bg-white px-3 text-sm text-[#003F2D] outline-none transition placeholder:text-[#687170] focus:border-[#B68A25]"
           disabled={pending}
           autoComplete="off"
+          name="couponCode"
+          inputMode="text"
         />
         <button
-          type="submit"
+          type="button"
           disabled={pending || !code.trim()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleApply();
+          }}
           className="h-11 border border-[#003F2D] px-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#003F2D] transition hover:bg-[#FAF8F3] disabled:opacity-45"
         >
           {pending ? "…" : "Apply"}
@@ -88,6 +109,6 @@ export function CouponForm({
       </div>
       {error ? <p className="text-xs text-red-700">{error}</p> : null}
       {success ? <p className="text-xs text-[#003F2D]">{success}</p> : null}
-    </form>
+    </div>
   );
 }

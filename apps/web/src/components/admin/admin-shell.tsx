@@ -12,6 +12,7 @@ import {
   Settings,
   ShoppingBag,
   Tags,
+  Truck,
   Users,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
@@ -23,6 +24,7 @@ const ADMIN_NAV = [
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/categories", label: "Categories", icon: FolderTree },
   { href: "/admin/inventory", label: "Inventory", icon: Boxes },
+  { href: "/admin/shipping", label: "Shipping", icon: Truck },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/discounts", label: "Discounts", icon: Tags },
   { href: "/admin/settings", label: "Settings", icon: Settings },
@@ -114,10 +116,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
         <aside className="hidden w-64 shrink-0 bg-green text-white lg:flex lg:flex-col">
           <div className="border-b border-white/10 px-4 py-5">
-            <div className="rounded-sm bg-white/95 p-2">
-              <BrandLogo href="/admin" size="sm" />
+            <div className="mx-auto flex h-[4.5rem] w-[4.5rem] items-center justify-center overflow-hidden rounded-md bg-white p-1">
+              <BrandLogo href="/admin" size="md" variant="solid" priority />
             </div>
-            <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.22em] text-gold">
+            <p className="mt-3 text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-gold">
               Admin Console
             </p>
           </div>

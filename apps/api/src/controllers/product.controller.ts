@@ -1,11 +1,15 @@
 import type { Request, Response } from "express";
 import {
   archiveProduct,
+  bulkUpdateProducts,
   createProduct,
+  duplicateProduct,
   getAdminProductById,
   getProductBySlug,
   listAdminProducts,
   listProducts,
+  restoreProduct,
+  softDeleteProduct,
   updateProduct,
 } from "../services/product.service";
 import { sendSuccess } from "../utils/api-response";
@@ -28,7 +32,15 @@ export async function listAdminProductsHandler(req: Request, res: Response) {
     page: req.query.page ? Number(req.query.page) : undefined,
     pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
   });
-  return sendSuccess(res, result.items, 200, result.meta);
+  return sendSuccess(
+    res,
+    {
+      items: result.items,
+      summary: result.meta.summary,
+    },
+    200,
+    result.meta
+  );
 }
 
 export async function getProductHandler(req: Request, res: Response) {
@@ -55,5 +67,30 @@ export async function updateProductHandler(req: Request, res: Response) {
 
 export async function archiveProductHandler(req: Request, res: Response) {
   const result = await archiveProduct(req.params.id);
+  return sendSuccess(res, result);
+}
+
+export async function softDeleteProductHandler(req: Request, res: Response) {
+  const result = await softDeleteProduct(req.params.id);
+  return sendSuccess(res, result);
+}
+
+export async function restoreProductHandler(req: Request, res: Response) {
+  const product = await restoreProduct(req.params.id);
+  return sendSuccess(res, product);
+}
+
+export async function duplicateProductHandler(req: Request, res: Response) {
+  const product = await duplicateProduct(req.params.id);
+  return sendSuccess(res, product, 201);
+}
+
+export async function bulkUpdateProductsHandler(req: Request, res: Response) {
+  const result = await bulkUpdateProducts({
+    ids: Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [],
+    action: req.body?.action,
+    categoryId:
+      typeof req.body?.categoryId === "string" ? req.body.categoryId : undefined,
+  });
   return sendSuccess(res, result);
 }

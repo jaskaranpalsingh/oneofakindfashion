@@ -2,6 +2,7 @@ import { ProductStatus, productFilterSchema, type ProductSummary } from "@ookf/s
 import { Types, type FilterQuery } from "mongoose";
 import { getStoreSettings } from "./admin-settings.service";
 import { CategoryModel } from "../models/category.model";
+import { OrderModel } from "../models/order.model";
 import { ProductModel, type ProductDocument } from "../models/product.model";
 import { AppError } from "../utils/app-error";
 import { uniqueSlug } from "../utils/slugify";
@@ -34,6 +35,67 @@ function availableStock(variant: {
   return Math.max(0, variant.stockQuantity - (variant.reservedQuantity ?? 0));
 }
 
+type ProductImageInput = {
+  id?: string;
+  url: string;
+  publicId?: string;
+  alt?: string;
+  sortOrder?: number;
+  isPrimary?: boolean;
+};
+
+function sortProductImages<T extends { sortOrder?: number; isPrimary?: boolean }>(
+  images: T[]
+) {
+  return [...images].sort((a, b) => {
+    if (a.isPrimary && !b.isPrimary) return -1;
+    if (!a.isPrimary && b.isPrimary) return 1;
+    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+  });
+}
+
+function normalizeProductImages(images: ProductImageInput[]) {
+  if (images.length > 6) {
+    throw new AppError(
+      400,
+      "TOO_MANY_IMAGES",
+      "A product can have at most 6 images"
+    );
+  }
+
+  const sorted = sortProductImages(images);
+  return sorted.map((image, index) => ({
+    ...(image.id && Types.ObjectId.isValid(image.id)
+      ? { _id: new Types.ObjectId(image.id) }
+      : {}),
+    url: image.url,
+    publicId: image.publicId,
+    alt: image.alt ?? "",
+    sortOrder: index,
+    isPrimary: index === 0,
+  }));
+}
+
+function mapProductImages(
+  images: Array<{
+    _id?: unknown;
+    url: string;
+    publicId?: string;
+    alt?: string;
+    sortOrder?: number;
+    isPrimary?: boolean;
+  }>
+) {
+  return sortProductImages(images).map((image, index) => ({
+    id: image._id ? String(image._id) : undefined,
+    url: image.url,
+    publicId: image.publicId,
+    alt: image.alt ?? "",
+    sortOrder: image.sortOrder ?? index,
+    isPrimary: Boolean(image.isPrimary) || index === 0,
+  }));
+}
+
 export function mapProductSummary(product: ProductDocument | Record<string, unknown>): ProductSummary {
   const doc = product as ProductDocument;
   const variants = (doc.variants ?? []) as Array<{
@@ -44,10 +106,12 @@ export function mapProductSummary(product: ProductDocument | Record<string, unkn
   const inStock = variants.some(
     (variant) => (variant.isAvailable ?? true) && availableStock(variant) > 0
   );
-  const images = (doc.images ?? []) as Array<{ url: string; sortOrder?: number }>;
-  const sortedImages = [...images].sort(
-    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
-  );
+  const images = (doc.images ?? []) as Array<{
+    url: string;
+    sortOrder?: number;
+    isPrimary?: boolean;
+  }>;
+  const sortedImages = sortProductImages(images);
   const primary = sortedImages[0];
   const secondary = sortedImages[1];
 
@@ -83,6 +147,26 @@ export async function listProducts(query: Record<string, unknown>) {
 
   if (filters.q) {
     mongoFilter.$text = { $search: filters.q };
+  }
+
+  if (filters.ids) {
+    const idList = filters.ids
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => Types.ObjectId.isValid(value))
+      .map((value) => new Types.ObjectId(value));
+    if (idList.length === 0) {
+      return {
+        items: [] as ProductSummary[],
+        meta: {
+          page: filters.page,
+          pageSize: filters.pageSize,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+    mongoFilter._id = { $in: idList };
   }
 
   if (filters.category) {
@@ -174,8 +258,28 @@ export async function listProducts(query: Record<string, unknown>) {
   }
 
   const skip = (filters.page - 1) * filters.pageSize;
+  // List cards only need summary fields — skip descriptions and full gallery payloads.
+  const listProjection = {
+    name: 1,
+    slug: 1,
+    sku: 1,
+    productType: 1,
+    status: 1,
+    priceCents: 1,
+    compareAtPriceCents: 1,
+    isFeatured: 1,
+    isNewArrival: 1,
+    isBestSeller: 1,
+    publishedAt: 1,
+    images: { $slice: 2 },
+    "variants.stockQuantity": 1,
+    "variants.reservedQuantity": 1,
+    "variants.isAvailable": 1,
+  } as const;
+
   const [rows, total] = await Promise.all([
     ProductModel.find(mongoFilter)
+      .select(listProjection)
       .sort(sort)
       .skip(skip)
       .limit(filters.pageSize)
@@ -223,7 +327,16 @@ export async function getProductBySlug(slug: string, opts?: { admin?: boolean })
     tags: product.tags ?? [],
     clothing: product.clothing ?? null,
     jewellery: product.jewellery ?? null,
-    images: product.images ?? [],
+    images: mapProductImages(
+      (product.images ?? []) as Array<{
+        _id?: unknown;
+        url: string;
+        publicId?: string;
+        alt?: string;
+        sortOrder?: number;
+        isPrimary?: boolean;
+      }>
+    ),
     variants: (product.variants ?? []).map((variant) => ({
       id: String(variant._id),
       sku: variant.sku,
@@ -288,6 +401,7 @@ export async function createProduct(input: CreateProductInput) {
   const product = await ProductModel.create({
     ...input,
     slug,
+    images: normalizeProductImages(input.images ?? []),
     variants: input.variants.map(({ id: _ignored, ...variant }) => variant),
     status,
     isNewArrival: publishing ? true : Boolean(input.isNewArrival),
@@ -349,6 +463,28 @@ export async function listAdminProducts(query: {
 
   const [rows, total] = await Promise.all([
     ProductModel.find(filter)
+      .select({
+        name: 1,
+        slug: 1,
+        sku: 1,
+        status: 1,
+        priceCents: 1,
+        compareAtPriceCents: 1,
+        productType: 1,
+        categoryId: 1,
+        subcategoryId: 1,
+        isFeatured: 1,
+        isNewArrival: 1,
+        isBestSeller: 1,
+        publishedAt: 1,
+        updatedAt: 1,
+        lowStockThreshold: 1,
+        images: { $slice: 1 },
+        "variants.stockQuantity": 1,
+        "variants.reservedQuantity": 1,
+        "variants.isAvailable": 1,
+        "variants.sku": 1,
+      })
       .sort({ updatedAt: -1 })
       .skip((page - 1) * pageSize)
       .limit(pageSize)
@@ -375,21 +511,144 @@ export async function listAdminProducts(query: {
   const items = rows.map((row) => {
     const summary = mapProductSummary(row);
     const category = categoryById.get(String(row.categoryId));
-    const stock = (row.variants ?? []).reduce(
+    const variants = row.variants ?? [];
+    const threshold =
+      (row as { lowStockThreshold?: number }).lowStockThreshold ?? 3;
+    const available = variants.reduce(
       (sum, variant) => sum + availableStock(variant),
       0
     );
+    const reserved = variants.reduce(
+      (sum, variant) => sum + (variant.reservedQuantity ?? 0),
+      0
+    );
+    const physical = variants.reduce(
+      (sum, variant) => sum + (variant.stockQuantity ?? 0),
+      0
+    );
+    const inventoryStatus =
+      available <= 0
+        ? "out_of_stock"
+        : available <= threshold
+          ? "low_stock"
+          : "in_stock";
     return {
       ...summary,
       categoryId: String(row.categoryId),
       categoryName: category?.name ?? "Uncategorised",
       categorySlug: category?.slug ?? null,
-      variantCount: row.variants?.length ?? 0,
-      stockQuantity: stock,
+      variantCount: variants.length,
+      stockQuantity: available,
+      physicalStock: physical,
+      reservedStock: reserved,
+      lowStockThreshold: threshold,
+      inventoryStatus,
       publishedAt: row.publishedAt ?? null,
       updatedAt: row.updatedAt,
     };
   });
+
+  const [publishedCount, draftCount, unpublishedCount, archivedCount, lowStockCount, outOfStockCount] =
+    await Promise.all([
+      ProductModel.countDocuments({
+        deletedAt: null,
+        status: ProductStatus.PUBLISHED,
+      }),
+      ProductModel.countDocuments({
+        deletedAt: null,
+        status: ProductStatus.DRAFT,
+      }),
+      ProductModel.countDocuments({
+        deletedAt: null,
+        status: ProductStatus.UNPUBLISHED,
+      }),
+      ProductModel.countDocuments({
+        deletedAt: null,
+        status: ProductStatus.ARCHIVED,
+      }),
+      ProductModel.countDocuments({
+        deletedAt: null,
+        $expr: {
+          $and: [
+            {
+              $gt: [
+                {
+                  $sum: {
+                    $map: {
+                      input: "$variants",
+                      as: "v",
+                      in: {
+                        $max: [
+                          0,
+                          {
+                            $subtract: [
+                              "$$v.stockQuantity",
+                              { $ifNull: ["$$v.reservedQuantity", 0] },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+                0,
+              ],
+            },
+            {
+              $lte: [
+                {
+                  $sum: {
+                    $map: {
+                      input: "$variants",
+                      as: "v",
+                      in: {
+                        $max: [
+                          0,
+                          {
+                            $subtract: [
+                              "$$v.stockQuantity",
+                              { $ifNull: ["$$v.reservedQuantity", 0] },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+                { $ifNull: ["$lowStockThreshold", 3] },
+              ],
+            },
+          ],
+        },
+      }),
+      ProductModel.countDocuments({
+        deletedAt: null,
+        $expr: {
+          $lte: [
+            {
+              $sum: {
+                $map: {
+                  input: "$variants",
+                  as: "v",
+                  in: {
+                    $max: [
+                      0,
+                      {
+                        $subtract: [
+                          "$$v.stockQuantity",
+                          { $ifNull: ["$$v.reservedQuantity", 0] },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+            0,
+          ],
+        },
+      }),
+    ]);
 
   return {
     items,
@@ -398,6 +657,15 @@ export async function listAdminProducts(query: {
       pageSize,
       total,
       totalPages: Math.ceil(total / pageSize),
+      summary: {
+        total,
+        published: publishedCount,
+        draft: draftCount,
+        unpublished: unpublishedCount,
+        archived: archivedCount,
+        lowStock: lowStockCount,
+        outOfStock: outOfStockCount,
+      },
     },
   };
 }
@@ -419,7 +687,16 @@ export async function getAdminProductById(id: string) {
     tags: product.tags ?? [],
     clothing: product.clothing ?? null,
     jewellery: product.jewellery ?? null,
-    images: product.images ?? [],
+    images: mapProductImages(
+      (product.images ?? []) as Array<{
+        _id?: unknown;
+        url: string;
+        publicId?: string;
+        alt?: string;
+        sortOrder?: number;
+        isPrimary?: boolean;
+      }>
+    ),
     variants: (product.variants ?? []).map((variant) => ({
       id: String(variant._id),
       sku: variant.sku,
@@ -438,6 +715,23 @@ export async function getAdminProductById(id: string) {
     })),
     seoTitle: product.seoTitle ?? null,
     seoDescription: product.seoDescription ?? null,
+    lowStockThreshold: product.lowStockThreshold ?? 3,
+    allowBackorder: Boolean(product.allowBackorder),
+    isPhysical: (product as { isPhysical?: boolean }).isPhysical !== false,
+    weightGrams: (product as { weightGrams?: number }).weightGrams ?? null,
+    weightUnit: (product as { weightUnit?: string }).weightUnit ?? "g",
+    dimensionsCm:
+      (product as { dimensionsCm?: Record<string, number> }).dimensionsCm ??
+      null,
+    shippingClass:
+      (product as { shippingClass?: string }).shippingClass ??
+      "standard_clothing",
+    freeShippingEligible:
+      (product as { freeShippingEligible?: boolean }).freeShippingEligible !==
+      false,
+    additionalHandlingCents:
+      (product as { additionalHandlingCents?: number })
+        .additionalHandlingCents ?? 0,
   };
 }
 
@@ -481,11 +775,16 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
     );
   }
 
-  const { variants, ...rest } = input;
+  const { variants, images, ...rest } = input;
   Object.assign(product, rest, {
     slug: product.slug,
     publishedAt: product.publishedAt,
   });
+
+  if (images) {
+    product.images = normalizeProductImages(images) as typeof product.images;
+    product.markModified("images");
+  }
 
   if (variants) {
     const variantSkus = variants.map((variant) => variant.sku);
@@ -529,8 +828,172 @@ export async function archiveProduct(id: string) {
     throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
   }
 
+  // Keep visible in admin Archived filter; hide from storefront via status.
+  product.status = ProductStatus.ARCHIVED;
+  product.deletedAt = undefined;
+  await product.save();
+  return { id: product.id, archived: true, status: product.status };
+}
+
+export async function restoreProduct(id: string) {
+  assertObjectId(id, "productId");
+  const product = await ProductModel.findById(id);
+  if (!product) {
+    throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
+  }
+  product.deletedAt = undefined;
+  product.status = ProductStatus.DRAFT;
+  await product.save();
+  return getAdminProductById(String(product._id));
+}
+
+export async function softDeleteProduct(id: string) {
+  assertObjectId(id, "productId");
+  const product = await ProductModel.findOne({ _id: id, deletedAt: null });
+  if (!product) {
+    throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
+  }
+
+  const orderCount = await OrderModel.countDocuments({
+    "items.productId": product._id,
+  });
+
   product.status = ProductStatus.ARCHIVED;
   product.deletedAt = new Date();
   await product.save();
-  return { id: product.id, archived: true };
+
+  return {
+    id: String(product._id),
+    deleted: true,
+    soft: true,
+    hadOrders: orderCount > 0,
+  };
+}
+
+export async function duplicateProduct(id: string) {
+  assertObjectId(id, "productId");
+  const source = await ProductModel.findOne({ _id: id, deletedAt: null }).lean();
+  if (!source) {
+    throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
+  }
+
+  const baseSku = `${source.sku}-COPY`;
+  let sku = baseSku;
+  let n = 1;
+  while (await ProductModel.exists({ sku })) {
+    n += 1;
+    sku = `${baseSku}-${n}`;
+  }
+
+  const slug = await uniqueSlug(`${source.slug}-copy`, async (value) =>
+    Boolean(await ProductModel.exists({ slug: value }))
+  );
+
+  const created = await ProductModel.create({
+    name: `${source.name} (Copy)`,
+    slug,
+    sku,
+    productType: source.productType,
+    status: ProductStatus.DRAFT,
+    categoryId: source.categoryId,
+    subcategoryId: source.subcategoryId,
+    brand: source.brand,
+    shortDescription: source.shortDescription,
+    description: source.description,
+    priceCents: source.priceCents,
+    compareAtPriceCents: source.compareAtPriceCents,
+    tags: source.tags ?? [],
+    clothing: source.clothing,
+    jewellery: source.jewellery,
+    images: normalizeProductImages(
+      (source.images ?? []).map((image, index) => ({
+        url: image.url,
+        publicId: image.publicId ?? undefined,
+        alt: image.alt ?? "",
+        sortOrder: image.sortOrder ?? index,
+        isPrimary: Boolean((image as { isPrimary?: boolean }).isPrimary) || index === 0,
+      }))
+    ),
+    variants: (source.variants ?? []).map((variant, index) => ({
+      sku: `${sku}-V${index + 1}`,
+      options: variant.options,
+      priceCents: variant.priceCents,
+      stockQuantity: variant.stockQuantity ?? 0,
+      reservedQuantity: 0,
+      imageUrl: variant.imageUrl,
+      isAvailable: variant.isAvailable ?? true,
+    })),
+    seoTitle: source.seoTitle,
+    seoDescription: source.seoDescription,
+    isFeatured: false,
+    isNewArrival: false,
+    isBestSeller: false,
+    lowStockThreshold: source.lowStockThreshold ?? 3,
+    allowBackorder: source.allowBackorder ?? false,
+  });
+
+  return getAdminProductById(String(created._id));
+}
+
+export async function bulkUpdateProducts(input: {
+  ids: string[];
+  action:
+    | "publish"
+    | "unpublish"
+    | "archive"
+    | "delete"
+    | "restore"
+    | "set_category";
+  categoryId?: string;
+}) {
+  const ids = [...new Set(input.ids)].filter((id) => Types.ObjectId.isValid(id));
+  if (!ids.length) {
+    throw new AppError(400, "NO_IDS", "Select at least one product");
+  }
+
+  const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+
+  for (const id of ids) {
+    try {
+      switch (input.action) {
+        case "publish":
+          await updateProduct(id, { status: ProductStatus.PUBLISHED });
+          break;
+        case "unpublish":
+          await updateProduct(id, { status: ProductStatus.UNPUBLISHED });
+          break;
+        case "archive":
+          await archiveProduct(id);
+          break;
+        case "delete":
+          await softDeleteProduct(id);
+          break;
+        case "restore":
+          await restoreProduct(id);
+          break;
+        case "set_category":
+          if (!input.categoryId) {
+            throw new AppError(400, "CATEGORY_REQUIRED", "categoryId is required");
+          }
+          await updateProduct(id, { categoryId: input.categoryId });
+          break;
+        default:
+          throw new AppError(400, "INVALID_ACTION", "Unknown bulk action");
+      }
+      results.push({ id, ok: true });
+    } catch (error) {
+      results.push({
+        id,
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed",
+      });
+    }
+  }
+
+  return {
+    total: results.length,
+    succeeded: results.filter((row) => row.ok).length,
+    failed: results.filter((row) => !row.ok).length,
+    results,
+  };
 }

@@ -10,11 +10,17 @@ out
 coverage
 *.tsbuildinfo
 
-# Env
+# Env / secrets
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+credentials.json
+service-account*.json
 
 # Logs
 logs
@@ -29,17 +35,20 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Test / Playwright
+# Test / Playwright / Lighthouse
 test-results
 playwright-report
 blob-report
 playwright/.cache
+lighthouse-*.json
+.lighthouseci
 
-# Uploads / temp
+# Uploads / temp / local ops
 tmp
 temp
 uploads
+apps/api/scripts/inspect-wishlists.mjs
+apps/api/scripts/repair-wishlist-leak.mjs
 
 # Misc
-*.pem
 .turbo

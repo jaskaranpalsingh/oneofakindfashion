@@ -1,9 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { CartProvider } from "@/components/cart/cart-provider";
-import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import type { PublicStoreSettings } from "@/lib/store-settings";
+
+const SiteFooter = dynamic(
+  () =>
+    import("@/components/layout/site-footer").then((mod) => mod.SiteFooter),
+  { ssr: true }
+);
 
 export function StorefrontShell({
   children,

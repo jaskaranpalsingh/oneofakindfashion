@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { formatCad } from "@ookf/shared";
-import { CouponForm } from "@/components/cart/coupon-form";
+import { FreeShippingProgress } from "@/components/commerce/free-shipping-progress";
+import { getApiBaseUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export function OrderSummary({
@@ -10,20 +12,42 @@ export function OrderSummary({
   discountCents,
   couponCode,
   canCheckout,
-  onApplyCoupon,
-  onRemoveCoupon,
 }: {
   subtotalCents: number;
   discountCents: number;
   couponCode: string | null;
   canCheckout: boolean;
-  onApplyCoupon: (code: string) => Promise<void>;
-  onRemoveCoupon: () => Promise<void>;
 }) {
+  const settingsQuery = useQuery({
+    queryKey: ["public-settings", "free-shipping"],
+    queryFn: async () => {
+      const response = await fetch(`${getApiBaseUrl()}/api/v1/settings`, {
+        credentials: "include",
+      });
+      const json = await response.json();
+      if (!response.ok || !json.success) {
+        throw new Error("Failed to load settings");
+      }
+      return json.data as {
+        shipping?: { freeShippingMinimumCents?: number };
+      };
+    },
+    staleTime: 60_000,
+  });
+  const freeMin =
+    settingsQuery.data?.shipping?.freeShippingMinimumCents ?? 20000;
+  const merchandiseTotalCents = Math.max(0, subtotalCents - discountCents);
+
   return (
     <aside className="h-fit border border-[#E7E2D9] bg-white p-6 sm:p-7 lg:sticky lg:top-28">
       <h2 className="font-serif text-[1.85rem] text-[#003F2D]">Order summary</h2>
       <span className="mt-3 block h-px w-14 bg-[#B68A25]" aria-hidden />
+
+      <FreeShippingProgress
+        className="mt-5"
+        eligibleSubtotalCents={merchandiseTotalCents}
+        freeShippingMinimumCents={freeMin}
+      />
 
       <div className="mt-6 space-y-3 text-sm">
         <div className="flex items-center justify-between gap-4">
@@ -34,7 +58,9 @@ export function OrderSummary({
         </div>
         {discountCents > 0 ? (
           <div className="flex items-center justify-between gap-4">
-            <span className="text-[#687170]">Discount</span>
+            <span className="text-[#687170]">
+              {couponCode ? `Discount (${couponCode})` : "Discount"}
+            </span>
             <span className="font-medium text-[#003F2D]">
               −{formatCad(discountCents)}
             </span>
@@ -48,13 +74,13 @@ export function OrderSummary({
           <span className="text-[#687170]">Taxes</span>
           <span className="text-[#687170]">Calculated at checkout</span>
         </div>
+        <div className="flex items-center justify-between gap-4 border-t border-[#E7E2D9] pt-3">
+          <span className="font-medium text-[#003F2D]">Estimated total</span>
+          <span className="font-serif text-xl text-[#003F2D]">
+            {formatCad(merchandiseTotalCents)}
+          </span>
+        </div>
       </div>
-
-      <CouponForm
-        appliedCode={couponCode}
-        onApply={onApplyCoupon}
-        onRemove={onRemoveCoupon}
-      />
 
       <Link
         href="/checkout"

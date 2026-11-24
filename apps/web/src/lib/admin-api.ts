@@ -68,7 +68,14 @@ export type DashboardSummary = {
     revenueCents: number;
     paidOrders: number;
   };
-  customers: { total: number };
+  customers: {
+    total: number;
+    newToday?: number;
+    newThisMonth?: number;
+    withCompletedOrders?: number;
+    returning?: number;
+    revenueCents?: number;
+  };
   products: {
     total: number;
     published: number;

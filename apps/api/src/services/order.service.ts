@@ -5,6 +5,11 @@ import {
 import { Types } from "mongoose";
 import { OrderModel } from "../models/order.model";
 import { AppError } from "../utils/app-error";
+import { getManualCarrierAdapter } from "./carriers/manual.carrier";
+import {
+  sendOrderReadyForPickupEmail,
+  sendOrderShippedEmail,
+} from "./email.service";
 
 function assertObjectId(id: string, label = "id") {
   if (!Types.ObjectId.isValid(id)) {
@@ -102,7 +107,18 @@ export async function getOrderById(id: string) {
     discountCents: order.discountCents ?? 0,
     taxBreakdown: order.taxBreakdown ?? [],
     trackingNumber: order.trackingNumber ?? null,
+    trackingUrl:
+      (order as { trackingUrl?: string }).trackingUrl ?? null,
     shippingCarrier: order.shippingCarrier ?? null,
+    shippingSnapshot:
+      (order as { shippingSnapshot?: Record<string, unknown> }).shippingSnapshot ??
+      null,
+    deliveryInstructions:
+      (order as { deliveryInstructions?: string }).deliveryInstructions ?? null,
+    shippedAt: (order as { shippedAt?: Date }).shippedAt ?? null,
+    estimatedDeliveryAt:
+      (order as { estimatedDeliveryAt?: Date }).estimatedDeliveryAt ?? null,
+    customerNotes: (order as { customerNotes?: string }).customerNotes ?? null,
     internalNotes: order.internalNotes ?? null,
     paidAt: order.paidAt ?? null,
     cancelledAt: order.cancelledAt ?? null,
@@ -123,7 +139,9 @@ export async function updateOrderFulfillment(
   input: {
     fulfillmentStatus?: string;
     trackingNumber?: string;
+    trackingUrl?: string;
     shippingCarrier?: string;
+    estimatedDeliveryAt?: string | null;
     internalNotes?: string;
   },
   actorUserId?: string
@@ -133,6 +151,8 @@ export async function updateOrderFulfillment(
   if (!order) {
     throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
   }
+
+  const previousStatus = order.fulfillmentStatus;
 
   if (
     input.fulfillmentStatus &&
@@ -166,8 +186,35 @@ export async function updateOrderFulfillment(
   if (input.shippingCarrier !== undefined) {
     order.shippingCarrier = input.shippingCarrier;
   }
+  if (input.trackingUrl !== undefined) {
+    order.set("trackingUrl", input.trackingUrl || undefined);
+  } else if (input.trackingNumber) {
+    const built = getManualCarrierAdapter().buildTrackingUrl?.(
+      input.trackingNumber
+    );
+    if (built) order.set("trackingUrl", built);
+  }
+  if (input.estimatedDeliveryAt !== undefined) {
+    order.set(
+      "estimatedDeliveryAt",
+      input.estimatedDeliveryAt ? new Date(input.estimatedDeliveryAt) : undefined
+    );
+  }
   if (input.internalNotes !== undefined) {
     order.internalNotes = input.internalNotes;
+  }
+
+  const shippedStatuses = new Set<string>([
+    FulfillmentStatus.SHIPPED,
+    FulfillmentStatus.IN_TRANSIT,
+    FulfillmentStatus.OUT_FOR_DELIVERY,
+  ]);
+  if (
+    input.fulfillmentStatus &&
+    shippedStatuses.has(input.fulfillmentStatus) &&
+    !order.get("shippedAt")
+  ) {
+    order.set("shippedAt", new Date());
   }
 
   order.events.push({
@@ -180,5 +227,46 @@ export async function updateOrderFulfillment(
   });
 
   await order.save();
+
+  // Idempotent-ish: only email when status newly enters shipped / ready_for_pickup.
+  if (
+    input.fulfillmentStatus === FulfillmentStatus.SHIPPED &&
+    previousStatus !== FulfillmentStatus.SHIPPED
+  ) {
+    await sendOrderShippedEmail({
+      to: order.customerEmail,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      shippingMethod: order.shippingMethod,
+      shippingCarrier: order.shippingCarrier || undefined,
+      trackingNumber: order.trackingNumber || undefined,
+      trackingUrl:
+        (order.get("trackingUrl") as string | null | undefined) || undefined,
+      shippingAddress: {
+        line1: order.shippingAddress?.line1 || undefined,
+        city: order.shippingAddress?.city || undefined,
+        province: order.shippingAddress?.province || undefined,
+        postalCode: order.shippingAddress?.postalCode || undefined,
+        country: order.shippingAddress?.country || undefined,
+      },
+      items: (order.items ?? []).map((item) => ({
+        productName: item.productName,
+        quantity: item.quantity,
+        sku: item.sku,
+      })),
+    });
+  }
+
+  if (
+    input.fulfillmentStatus === FulfillmentStatus.READY_FOR_PICKUP &&
+    previousStatus !== FulfillmentStatus.READY_FOR_PICKUP
+  ) {
+    await sendOrderReadyForPickupEmail({
+      to: order.customerEmail,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+    });
+  }
+
   return getOrderById(id);
 }

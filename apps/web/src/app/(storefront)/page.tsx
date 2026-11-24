@@ -1,13 +1,53 @@
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { CollectionsSection } from "@/components/home/collections-section";
 import { HomeHero } from "@/components/home/hero";
-import { NewArrivalsSection } from "@/components/home/new-arrivals-section";
-import { WhyShopWithUs } from "@/components/home/why-shop-with-us";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchProducts } from "@/lib/catalogue";
 import { fetchFeaturedCollections } from "@/lib/collections";
 import { cn } from "@/lib/utils";
+
+const CollectionsSection = dynamic(
+  () =>
+    import("@/components/home/collections-section").then(
+      (mod) => mod.CollectionsSection
+    ),
+  {
+    loading: () => (
+      <section className="border-b border-[#D4AF37]/20 bg-[#FFF9F0] py-16 sm:py-20">
+        <div className="mx-auto h-40 max-w-[1440px] animate-pulse bg-[#F3EEE3]/80" />
+      </section>
+    ),
+  }
+);
+
+const NewArrivalsSection = dynamic(
+  () =>
+    import("@/components/home/new-arrivals-section").then(
+      (mod) => mod.NewArrivalsSection
+    ),
+  {
+    loading: () => (
+      <section className="border-y border-[#D4AF37]/20 bg-[#FFF9F0] py-14 sm:py-16">
+        <div className="mx-auto h-56 max-w-[1440px] animate-pulse bg-[#F3EEE3]/80" />
+      </section>
+    ),
+  }
+);
+
+const WhyShopWithUs = dynamic(
+  () =>
+    import("@/components/home/why-shop-with-us").then(
+      (mod) => mod.WhyShopWithUs
+    ),
+  {
+    loading: () => (
+      <section className="bg-[#FCF9F3] py-16 sm:py-20">
+        <div className="mx-auto h-40 max-w-[1440px] animate-pulse bg-[#F3EEE3]/80" />
+      </section>
+    ),
+  }
+);
 
 export default async function HomePage() {
   let newArrivals: Awaited<ReturnType<typeof fetchProducts>> = [];

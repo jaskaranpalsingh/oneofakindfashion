@@ -7,7 +7,7 @@ export const upload = multer({
   storage,
   limits: {
     fileSize: 5 * 1024 * 1024,
-    files: 12,
+    files: 6,
   },
   fileFilter(_req, file, callback) {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {

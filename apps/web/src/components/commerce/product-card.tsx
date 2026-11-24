@@ -56,7 +56,8 @@ export function ProductCard({
                 src={product.primaryImageUrl}
                 alt={product.name}
                 fill
-                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                quality={80}
+                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                 className={cn(
                   "object-cover object-center transition duration-[550ms] ease-out",
                   "group-hover:scale-[1.045]",
@@ -69,7 +70,9 @@ export function ProductCard({
                   src={product.secondaryImageUrl}
                   alt=""
                   fill
-                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                  loading="lazy"
+                  quality={75}
+                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                   className={cn(
                     "object-cover object-center opacity-0 transition duration-[350ms] ease-out",
                     "group-hover:scale-[1.045] group-hover:opacity-100",

@@ -5,10 +5,11 @@ import {
   listCustomerOrders,
   lookupGuestOrder,
 } from "../services/customer-order.service";
-import { sendSuccess } from "../utils/api-response";
+import { sendSuccess, setPrivateNoStore } from "../utils/api-response";
 import { AppError } from "../utils/app-error";
 
 export async function listMyOrdersHandler(req: Request, res: Response) {
+  setPrivateNoStore(res);
   if (!req.auth?.userId) {
     throw new AppError(401, "UNAUTHENTICATED", "Sign in to view orders");
   }
@@ -17,6 +18,7 @@ export async function listMyOrdersHandler(req: Request, res: Response) {
 }
 
 export async function getMyOrderHandler(req: Request, res: Response) {
+  setPrivateNoStore(res);
   if (!req.auth?.userId) {
     throw new AppError(401, "UNAUTHENTICATED", "Sign in to view orders");
   }

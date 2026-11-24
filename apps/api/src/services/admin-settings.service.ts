@@ -42,11 +42,28 @@ export async function getStoreSettings() {
       pinterest: settings.socialLinks?.pinterest ?? null,
       tiktok: settings.socialLinks?.tiktok ?? null,
     },
-    shipping: settings.shipping ?? {
-      standardCents: 1500,
-      expressCents: 2500,
-      freeShippingMinimumCents: 20000,
-      localPickupEnabled: true,
+    shipping: {
+      standardCents: settings.shipping?.standardCents ?? 1499,
+      expressCents: settings.shipping?.expressCents ?? 2499,
+      freeShippingMinimumCents:
+        settings.shipping?.freeShippingMinimumCents ?? 20000,
+      localPickupEnabled: settings.shipping?.localPickupEnabled ?? true,
+      standardEta:
+        settings.shipping?.standardEta ?? "3–7 business days",
+      expressEta:
+        settings.shipping?.expressEta ?? "1–3 business days",
+      pickupInstructions:
+        settings.shipping?.pickupInstructions ??
+        "We will confirm pickup readiness by phone or email after your order is paid.",
+      pickupHours:
+        (settings.shipping as { pickupHours?: string } | undefined)
+          ?.pickupHours ?? "By appointment — confirmed after payment",
+      processingDays:
+        (settings.shipping as { processingDays?: number } | undefined)
+          ?.processingDays ?? 2,
+      handlingDays:
+        (settings.shipping as { handlingDays?: number } | undefined)
+          ?.handlingDays ?? 1,
     },
     taxRules: settings.taxRules ?? [],
     navigation: settings.navigation ?? [],

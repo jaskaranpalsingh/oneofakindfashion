@@ -43,7 +43,7 @@ export default async function CategoryShopPage({ params }: PageProps) {
   const special = SPECIAL_PAGES[category];
 
   let title = special?.title ?? category;
-  let description =
+  const description =
     special?.description ??
     "Explore curated ethnic fashion from ONE OF A KIND FASHION.";
   let products: Awaited<ReturnType<typeof fetchProducts>> = [];

@@ -1,18 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatCad } from "@ookf/shared";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { RefreshCw } from "lucide-react";
 import {
   adminFetch,
@@ -22,6 +14,21 @@ import {
   type RevenueRange,
 } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
+
+const DashboardRevenueChart = dynamic(
+  () =>
+    import("@/components/admin/dashboard-revenue-chart").then(
+      (mod) => mod.DashboardRevenueChart
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center text-sm text-muted">
+        Loading chart…
+      </div>
+    ),
+  }
+);
 
 const RANGE_OPTIONS: Array<{ value: RevenueRange; label: string }> = [
   { value: "7d", label: "7 days" },
@@ -206,7 +213,7 @@ export default function AdminDashboardPage() {
             <KpiCard
               label="Customers"
               value={String(summary.customers.total)}
-              hint="Registered customer accounts"
+              hint={`${summary.customers.newToday ?? 0} today · ${summary.customers.newThisMonth ?? 0} this month · ${summary.customers.withCompletedOrders ?? 0} with orders`}
             />
             <KpiCard
               label="Products"
@@ -291,43 +298,7 @@ export default function AdminDashboardPage() {
                 No paid orders in this period yet.
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#003F2D" stopOpacity={0.35} />
-                      <stop
-                        offset="100%"
-                        stopColor="#003F2D"
-                        stopOpacity={0.02}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E2D6" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={24} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    formatter={(value, _name, item) => {
-                      const orders = Number(
-                        (item?.payload as { orders?: number } | undefined)
-                          ?.orders ?? 0
-                      );
-                      return [
-                        `${formatCad(Math.round(Number(value ?? 0) * 100))} · ${orders} paid`,
-                        "Revenue",
-                      ];
-                    }}
-                    labelFormatter={(label) => `Date ${label}`}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#003F2D"
-                    fill="url(#revFill)"
-                    strokeWidth={2}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <DashboardRevenueChart data={chartData} />
             )}
           </div>
         </div>

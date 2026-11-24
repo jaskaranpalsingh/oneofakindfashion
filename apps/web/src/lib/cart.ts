@@ -144,6 +144,90 @@ export async function removeCartCoupon(): Promise<CartSnapshot> {
   return parseCartResponse(response);
 }
 
+export type CheckoutQuoteLine = {
+  id: string;
+  productId: string;
+  variantId: string;
+  name: string;
+  sku: string;
+  options: CartLine["options"];
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+  imageUrl: string | null;
+  maxQuantity?: number;
+};
+
+export type CheckoutQuoteResult = {
+  itemCount: number;
+  items?: CheckoutQuoteLine[];
+  subtotalCents: number;
+  discountCents: number;
+  couponCode: string | null;
+  shippingCents: number;
+  taxCents: number;
+  taxBreakdown: Array<{ name: string; rateBps: number; amountCents: number }>;
+  totalCents: number;
+  currency: "CAD";
+  amountUntilFreeCents?: number;
+  qualifiesForFreeShipping?: boolean;
+  zoneName?: string | null;
+  availableMethods?: Array<{
+    code: string;
+    name: string;
+    description: string;
+    rateCents: number | null;
+    etaLabel: string;
+    isPickup: boolean;
+    available: boolean;
+    qualifiesForFreeShipping: boolean;
+    freeShippingApplied: boolean;
+  }>;
+  shipping: {
+    standardCents: number;
+    expressCents: number;
+    freeShippingMinimumCents: number;
+    localPickupEnabled: boolean;
+    standardEta?: string;
+    expressEta?: string;
+    pickupInstructions?: string;
+  };
+};
+
+export class CheckoutQuoteError extends Error {
+  code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "CheckoutQuoteError";
+    this.code = code;
+  }
+}
+
+export async function quoteCheckoutTotals(input: {
+  shippingMethod: string;
+  province: string;
+  postalCode?: string;
+  mode?: "cart" | "buy_now";
+}): Promise<CheckoutQuoteResult> {
+  const response = await fetch(`${getApiBaseUrl()}/api/v1/checkout/quote`, {
+    method: "POST",
+    credentials: "include",
+    headers: cartHeaders(),
+    body: JSON.stringify(input),
+  });
+  const headerGuest = response.headers.get("X-Guest-Id");
+  if (headerGuest) writeGuestId(headerGuest);
+  const payload = await response.json();
+  if (!response.ok || !payload.success) {
+    throw new CheckoutQuoteError(
+      payload?.error?.code ?? "QUOTE_FAILED",
+      payload?.error?.message ?? "Unable to calculate totals"
+    );
+  }
+  return payload.data as CheckoutQuoteResult;
+}
+
 export async function setBuyNowIntent(input: {
   productId: string;
   variantId: string;

@@ -1,8 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Package } from "lucide-react";
+import { StockManagementModal } from "@/components/admin/stock-management-modal";
 import { adminFetch } from "@/lib/admin-api";
+import { cn } from "@/lib/utils";
 
 type InventoryResponse = {
   summary: {
@@ -14,20 +17,25 @@ type InventoryResponse = {
   items: Array<{
     productId: string;
     productName: string;
+    productSku?: string;
     variantId: string;
     variantSku: string;
     options: { size?: string; colour?: string };
     availableQuantity: number;
     stockQuantity: number;
+    reservedQuantity: number;
     status: string;
   }>;
 };
 
 export default function AdminInventoryPage() {
-  const queryClient = useQueryClient();
   const [q, setQ] = useState("");
-  const [deltaBySku, setDeltaBySku] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [stockTarget, setStockTarget] = useState<{
+    productId: string;
+    productName: string;
+    variantId: string;
+  } | null>(null);
 
   const inventoryQuery = useQuery({
     queryKey: ["admin", "inventory", q],
@@ -35,163 +43,167 @@ export default function AdminInventoryPage() {
       adminFetch<InventoryResponse>(
         `/api/v1/admin/inventory${q ? `?q=${encodeURIComponent(q)}` : ""}`
       ),
-    refetchInterval: 30_000,
-  });
-
-  const adjustMutation = useMutation({
-    mutationFn: (input: {
-      productId: string;
-      variantId: string;
-      quantityDelta: number;
-    }) =>
-      adminFetch("/api/v1/admin/inventory/adjustments", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    onSuccess: async () => {
-      setMessage("Inventory updated");
-      await queryClient.invalidateQueries({ queryKey: ["admin", "inventory"] });
-      await queryClient.invalidateQueries({
-        queryKey: ["admin", "dashboard"],
-      });
-    },
-    onError: (error: Error) => setMessage(error.message),
+    refetchInterval: 20_000,
   });
 
   const items = inventoryQuery.data?.items ?? [];
   const summary = inventoryQuery.data?.summary;
-
-  const sorted = useMemo(
-    () =>
-      [...items].sort((a, b) =>
-        a.availableQuantity === b.availableQuantity
-          ? a.variantSku.localeCompare(b.variantSku)
-          : a.availableQuantity - b.availableQuantity
-      ),
+  const reservedTotal = useMemo(
+    () => items.reduce((sum, item) => sum + (item.reservedQuantity ?? 0), 0),
     [items]
   );
+
+  const sorted = useMemo(() => {
+    const filtered =
+      statusFilter === "all"
+        ? items
+        : items.filter((item) => item.status === statusFilter);
+    return [...filtered].sort((a, b) =>
+      a.availableQuantity === b.availableQuantity
+        ? a.variantSku.localeCompare(b.variantSku)
+        : a.availableQuantity - b.availableQuantity
+    );
+  }, [items, statusFilter]);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-ink">Inventory</h1>
-        <p className="mt-1 text-sm text-muted">
-          Live stock from product variants in MongoDB.
+        <h1 className="font-serif text-3xl text-[#003F2D]">Inventory</h1>
+        <p className="mt-1 text-sm text-[#6B726E]">
+          Live stock from product variants in MongoDB · updates every 20s
         </p>
       </div>
 
-      {message ? (
-        <p className="border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-green">
-          {message}
-        </p>
-      ) : null}
       {inventoryQuery.isError ? (
         <p className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {(inventoryQuery.error as Error).message}
         </p>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Stat label="Total SKUs" value={summary?.totalSkus ?? "—"} />
         <Stat label="Available units" value={summary?.availableUnits ?? "—"} />
+        <Stat label="Reserved" value={reservedTotal} />
         <Stat label="Low stock" value={summary?.lowStockSkus ?? "—"} />
         <Stat label="Out of stock" value={summary?.outOfStockSkus ?? "—"} />
       </div>
 
-      <input
-        value={q}
-        onChange={(event) => setQ(event.target.value)}
-        placeholder="Search SKU or product name"
-        className="w-full max-w-md border border-border bg-white px-3 py-2 text-sm"
-      />
+      <div className="flex flex-wrap gap-3">
+        <input
+          value={q}
+          onChange={(event) => setQ(event.target.value)}
+          placeholder="Search SKU or product name"
+          className="min-w-[16rem] flex-1 border border-[#E5DFD4] bg-white px-3 py-2 text-sm"
+        />
+        <select
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value)}
+          className="border border-[#E5DFD4] bg-white px-3 py-2 text-sm"
+        >
+          <option value="all">All statuses</option>
+          <option value="in_stock">In stock</option>
+          <option value="low_stock">Low stock</option>
+          <option value="out_of_stock">Out of stock</option>
+        </select>
+      </div>
 
-      <div className="overflow-x-auto border border-border bg-white">
+      <div className="overflow-x-auto border border-[#E5DFD4] bg-white">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-border bg-ivory text-xs uppercase tracking-[0.12em] text-muted">
+          <thead className="border-b border-[#E5DFD4] bg-[#FAF7F0] text-xs uppercase tracking-[0.12em] text-[#6B726E]">
             <tr>
               <th className="px-4 py-3">Product</th>
               <th className="px-4 py-3">SKU</th>
-              <th className="px-4 py-3">Options</th>
+              <th className="px-4 py-3">Variant</th>
+              <th className="px-4 py-3">Physical</th>
+              <th className="px-4 py-3">Reserved</th>
               <th className="px-4 py-3">Available</th>
               <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Adjust</th>
+              <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((item) => (
-              <tr key={item.variantId} className="border-b border-border/70">
-                <td className="px-4 py-3">{item.productName}</td>
-                <td className="px-4 py-3 font-medium">{item.variantSku}</td>
-                <td className="px-4 py-3 text-muted">
-                  {[item.options.size, item.options.colour]
-                    .filter(Boolean)
-                    .join(" · ") || "—"}
+            {inventoryQuery.isLoading ? (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-[#6B726E]">
+                  Loading inventory…
                 </td>
-                <td className="px-4 py-3">{item.availableQuantity}</td>
-                <td className="px-4 py-3 capitalize">
-                  {item.status.replaceAll("_", " ")}
+              </tr>
+            ) : sorted.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-[#6B726E]">
+                  No inventory rows match these filters.
                 </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      className="w-20 border border-border px-2 py-1"
-                      placeholder="+/-"
-                      value={deltaBySku[item.variantId] ?? ""}
-                      onChange={(event) =>
-                        setDeltaBySku((current) => ({
-                          ...current,
-                          [item.variantId]: event.target.value,
-                        }))
-                      }
-                    />
+              </tr>
+            ) : (
+              sorted.map((item) => (
+                <tr key={item.variantId} className="border-b border-[#E5DFD4]/70">
+                  <td className="px-4 py-3 font-medium text-[#003F2D]">
+                    {item.productName}
+                  </td>
+                  <td className="px-4 py-3 text-[#6B726E]">{item.variantSku}</td>
+                  <td className="px-4 py-3 text-[#6B726E]">
+                    {[item.options.size, item.options.colour]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </td>
+                  <td className="px-4 py-3">{item.stockQuantity}</td>
+                  <td className="px-4 py-3">{item.reservedQuantity ?? 0}</td>
+                  <td className="px-4 py-3 font-medium">{item.availableQuantity}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={cn(
+                        "inline-flex rounded-sm px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]",
+                        item.status === "out_of_stock" && "bg-red-50 text-red-700",
+                        item.status === "low_stock" && "bg-amber-50 text-amber-800",
+                        item.status === "in_stock" && "bg-emerald-50 text-emerald-800"
+                      )}
+                    >
+                      {item.status.replaceAll("_", " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
                     <button
                       type="button"
-                      className="text-xs font-semibold uppercase tracking-[0.12em] text-green"
-                      onClick={() => {
-                        const quantityDelta = Number(
-                          deltaBySku[item.variantId]
-                        );
-                        if (!Number.isInteger(quantityDelta) || quantityDelta === 0) {
-                          setMessage("Enter a non-zero integer adjustment");
-                          return;
-                        }
-                        adjustMutation.mutate({
+                      onClick={() =>
+                        setStockTarget({
                           productId: item.productId,
+                          productName: item.productName,
                           variantId: item.variantId,
-                          quantityDelta,
-                        });
-                        setDeltaBySku((current) => ({
-                          ...current,
-                          [item.variantId]: "",
-                        }));
-                      }}
+                        })
+                      }
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#003F2D] hover:underline"
                     >
-                      Apply
+                      <Package className="h-3.5 w-3.5" />
+                      Manage
                     </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!inventoryQuery.isLoading && sorted.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-muted">
-                  No inventory rows found.
-                </td>
-              </tr>
-            ) : null}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
+
+      {stockTarget ? (
+        <StockManagementModal
+          open
+          productId={stockTarget.productId}
+          productName={stockTarget.productName}
+          initialVariantId={stockTarget.variantId}
+          onClose={() => setStockTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="border border-border bg-white p-4">
-      <p className="text-xs uppercase tracking-[0.14em] text-muted">{label}</p>
-      <p className="mt-2 font-serif text-3xl text-green">{value}</p>
+    <div className="border border-[#E5DFD4] bg-white px-4 py-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6B726E]">
+        {label}
+      </p>
+      <p className="mt-2 font-serif text-3xl text-[#003F2D]">{value}</p>
     </div>
   );
 }

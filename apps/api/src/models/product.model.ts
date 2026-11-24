@@ -1,5 +1,5 @@
 import { Schema, model, type HydratedDocument, type InferSchemaType } from "mongoose";
-import { ProductStatus, ProductType } from "@ookf/shared";
+import { ProductStatus, ProductType, ShippingClass } from "@ookf/shared";
 
 const productImageSchema = new Schema(
   {
@@ -7,6 +7,7 @@ const productImageSchema = new Schema(
     publicId: String,
     alt: { type: String, default: "" },
     sortOrder: { type: Number, default: 0 },
+    isPrimary: { type: Boolean, default: false },
   },
   { _id: true }
 );
@@ -97,12 +98,21 @@ const productSchema = new Schema(
     seoTitle: String,
     seoDescription: String,
     images: [productImageSchema],
+    isPhysical: { type: Boolean, default: true },
     weightGrams: Number,
+    weightUnit: { type: String, enum: ["g", "kg"], default: "g" },
     dimensionsCm: {
       length: Number,
       width: Number,
       height: Number,
     },
+    shippingClass: {
+      type: String,
+      enum: Object.values(ShippingClass),
+      default: ShippingClass.STANDARD_CLOTHING,
+    },
+    freeShippingEligible: { type: Boolean, default: true },
+    additionalHandlingCents: { type: Number, default: 0, min: 0 },
     clothing: clothingAttributesSchema,
     jewellery: jewelleryAttributesSchema,
     variants: {
@@ -122,9 +132,13 @@ const productSchema = new Schema(
 );
 
 productSchema.index({ status: 1, createdAt: -1 });
+productSchema.index({ status: 1, publishedAt: -1, createdAt: -1 });
+productSchema.index({ status: 1, categoryId: 1, publishedAt: -1 });
+productSchema.index({ status: 1, subcategoryId: 1 });
 productSchema.index({ status: 1, isFeatured: 1 });
 productSchema.index({ status: 1, isNewArrival: 1 });
 productSchema.index({ status: 1, isBestSeller: 1 });
+productSchema.index({ deletedAt: 1, status: 1 });
 productSchema.index({ priceCents: 1 });
 productSchema.index({ tags: 1 });
 productSchema.index({ "variants.sku": 1 }, { unique: true });

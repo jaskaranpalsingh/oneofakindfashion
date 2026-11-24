@@ -1,9 +1,11 @@
 import express from "express";
+import compression from "compression";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
+import fs from "node:fs";
 import { env, isAllowedWebOrigin } from "./config/env";
 import { createSessionMiddleware } from "./config/session";
 import { hydrateAuth } from "./middleware/auth";
@@ -12,6 +14,10 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import { requestIdMiddleware } from "./middleware/request-id";
 import { asyncHandler } from "./utils/async-handler";
 import { stripeWebhookHandler } from "./controllers/stripe-webhook.controller";
+import {
+  legacyWebPublicUploadDir,
+  localProductUploadDir,
+} from "./utils/upload-paths";
 
 export function createApp() {
   const app = express();
@@ -19,6 +25,7 @@ export function createApp() {
   app.set("trust proxy", 1);
 
   app.use(requestIdMiddleware);
+  app.use(compression());
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -40,6 +47,8 @@ export function createApp() {
         "Authorization",
         "X-Guest-Id",
         "X-Request-Id",
+        "Cache-Control",
+        "Pragma",
       ],
     })
   );
@@ -79,6 +88,28 @@ export function createApp() {
       },
     });
   });
+
+  // Local product images (and legacy Next public uploads) — always fresh from disk.
+  const uploadDirs = [localProductUploadDir(), legacyWebPublicUploadDir()].filter(
+    (dir) => {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  );
+  for (const dir of uploadDirs) {
+    app.use(
+      "/uploads/products",
+      express.static(dir, {
+        fallthrough: true,
+        maxAge: env.isProd ? "7d" : 0,
+        index: false,
+      })
+    );
+  }
 
   app.use("/api/v1", apiRouter);
 

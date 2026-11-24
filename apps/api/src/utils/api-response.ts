@@ -14,6 +14,12 @@ export function sendSuccess<T>(
   });
 }
 
+/** Mark private customer payloads as non-cacheable across users. */
+export function setPrivateNoStore(res: Response) {
+  res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+}
+
 export function sendError(
   res: Response,
   status: number,

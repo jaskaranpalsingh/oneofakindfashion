@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatCad } from "@ookf/shared";
-import { Container } from "@/components/ui/container";
+import { AccountShell } from "@/components/account/account-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { getApiBaseUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,8 @@ type OrderRow = {
   itemCount: number;
   totals: { totalCents: number };
   trackingNumber?: string | null;
+  trackingUrl?: string | null;
+  shippingCarrier?: string | null;
 };
 
 export default function AccountOrdersPage() {
@@ -47,85 +49,98 @@ export default function AccountOrdersPage() {
   }, []);
 
   return (
-    <section className="py-12 sm:py-16">
-      <Container>
-        <h1 className="font-serif text-4xl text-[#003F2D]">My orders</h1>
-        <p className="mt-2 text-sm text-[#6F746E]">
-          Track payment and fulfillment for every order on your account.
-        </p>
+    <AccountShell
+      title="My Orders"
+      description="Track payment and fulfillment for every order on your account."
+    >
+      {loading ? (
+        <p className="text-sm text-[#6B6458]">Loading orders…</p>
+      ) : null}
 
-        {loading ? (
-          <p className="mt-8 text-sm text-[#6F746E]">Loading orders…</p>
-        ) : null}
+      {error ? (
+        <div className="space-y-4">
+          <p className="border border-[#E5DFD4] bg-white px-4 py-3 text-sm text-[#003F2D]">
+            {error}
+          </p>
+          <Link href="/account/login" className={cn(buttonVariants())}>
+            Sign in
+          </Link>
+        </div>
+      ) : null}
 
-        {error ? (
-          <div className="mt-8 space-y-4">
-            <p className="border border-[#003F2D]/15 bg-white px-4 py-3 text-sm text-[#003F2D]">
-              {error}
-            </p>
-            <Link href="/account/login" className={cn(buttonVariants())}>
-              Sign in
-            </Link>
-          </div>
-        ) : null}
+      {!loading && !error && orders.length === 0 ? (
+        <div className="space-y-4 border border-[#E5DFD4] bg-white p-6">
+          <p className="text-sm text-[#6B6458]">No orders yet.</p>
+          <Link href="/shop" className={cn(buttonVariants())}>
+            Start shopping
+          </Link>
+        </div>
+      ) : null}
 
-        {!loading && !error && orders.length === 0 ? (
-          <div className="mt-8 space-y-4">
-            <p className="text-sm text-[#6F746E]">No orders yet.</p>
-            <Link href="/shop" className={cn(buttonVariants())}>
-              Start shopping
-            </Link>
-          </div>
-        ) : null}
-
-        {!loading && !error && orders.length > 0 ? (
-          <div className="mt-8 overflow-x-auto border border-[#E8E2D2] bg-white">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-[#E8E2D2] bg-[#F8F5EB]/70 text-xs uppercase tracking-[0.12em] text-[#6F746E]">
-                <tr>
-                  <th className="px-4 py-3">Order</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Items</th>
-                  <th className="px-4 py-3">Total</th>
-                  <th className="px-4 py-3">Payment</th>
-                  <th className="px-4 py-3">Fulfillment</th>
-                  <th className="px-4 py-3">Tracking</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((order) => (
-                  <tr key={order.orderNumber} className="border-b border-[#E8E2D2]/70">
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/order-confirmation/${order.orderNumber}`}
-                        className="font-medium text-[#003F2D] hover:underline"
+      {!loading && !error && orders.length > 0 ? (
+        <div className="overflow-x-auto border border-[#E5DFD4] bg-white">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[#E5DFD4] bg-[#FAF7F0] text-xs uppercase tracking-[0.12em] text-[#6B6458]">
+              <tr>
+                <th className="px-4 py-3">Order</th>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Items</th>
+                <th className="px-4 py-3">Total</th>
+                <th className="px-4 py-3">Payment</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Tracking</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr
+                  key={order.orderNumber}
+                  className="border-b border-[#E5DFD4]/70"
+                >
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/account/orders/${order.orderNumber}`}
+                      className="font-medium text-[#003F2D] hover:underline"
+                    >
+                      {order.orderNumber}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-[#6B6458]">
+                    {new Date(order.createdAt).toLocaleDateString("en-CA")}
+                  </td>
+                  <td className="px-4 py-3">{order.itemCount}</td>
+                  <td className="px-4 py-3">
+                    {formatCad(order.totals.totalCents)}
+                  </td>
+                  <td className="px-4 py-3 capitalize">
+                    {order.paymentStatus.replaceAll("_", " ")}
+                  </td>
+                  <td className="px-4 py-3 capitalize">
+                    {order.fulfillmentStatus.replaceAll("_", " ")}
+                  </td>
+                  <td className="px-4 py-3 text-[#6B6458]">
+                    {order.trackingUrl && order.trackingNumber ? (
+                      <a
+                        href={order.trackingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#003F2D] underline"
                       >
-                        {order.orderNumber}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-[#6F746E]">
-                      {new Date(order.createdAt).toLocaleDateString("en-CA")}
-                    </td>
-                    <td className="px-4 py-3">{order.itemCount}</td>
-                    <td className="px-4 py-3">
-                      {formatCad(order.totals.totalCents)}
-                    </td>
-                    <td className="px-4 py-3 capitalize">
-                      {order.paymentStatus.replaceAll("_", " ")}
-                    </td>
-                    <td className="px-4 py-3 capitalize">
-                      {order.fulfillmentStatus.replaceAll("_", " ")}
-                    </td>
-                    <td className="px-4 py-3 text-[#6F746E]">
-                      {order.trackingNumber || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </Container>
-    </section>
+                        {order.shippingCarrier
+                          ? `${order.shippingCarrier} · `
+                          : ""}
+                        {order.trackingNumber}
+                      </a>
+                    ) : (
+                      order.trackingNumber || "—"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </AccountShell>
   );
 }

@@ -13,31 +13,83 @@ type ProductDetailViewProps = {
   categories: CategoryDto[];
 };
 
+function buildGalleryImages(
+  product: ProductDetail,
+  selectedColour: string | null
+) {
+  const sorted = [...(product.images ?? [])].sort((a, b) => {
+    if (a.isPrimary && !b.isPrimary) return -1;
+    if (!a.isPrimary && b.isPrimary) return 1;
+    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+  });
+
+  const productImages = sorted.map((image) => ({
+    url: image.url,
+    alt: image.alt || product.name,
+  }));
+
+  const colourVariants = selectedColour
+    ? product.variants.filter(
+        (variant) =>
+          variant.options.colour === selectedColour && Boolean(variant.imageUrl)
+      )
+    : [];
+
+  const colourImages = colourVariants.map((variant) => ({
+    url: variant.imageUrl as string,
+    alt: `${product.name} — ${selectedColour}`,
+  }));
+
+  const otherVariantImages = product.variants
+    .filter((variant) => {
+      if (!variant.imageUrl) return false;
+      if (selectedColour && variant.options.colour === selectedColour) {
+        return false;
+      }
+      return true;
+    })
+    .map((variant) => ({
+      url: variant.imageUrl as string,
+      alt: variant.options.colour
+        ? `${product.name} — ${variant.options.colour}`
+        : product.name,
+    }));
+
+  // Colour-specific images first when a colour is selected; otherwise product gallery first.
+  if (colourImages.length > 0) {
+    return [...colourImages, ...productImages, ...otherVariantImages];
+  }
+
+  return [...productImages, ...otherVariantImages];
+}
+
 export function ProductDetailView({
   product,
   categories,
 }: ProductDetailViewProps) {
   const reduceMotion = useReducedMotion();
   const [variantImageUrl, setVariantImageUrl] = useState<string | null>(null);
+  const [selectedColour, setSelectedColour] = useState<string | null>(null);
 
-  const onActiveImageChange = useCallback((url: string | null) => {
-    setVariantImageUrl(url);
-  }, []);
+  const onActiveImageChange = useCallback(
+    (url: string | null, meta?: { colour?: string | null }) => {
+      setVariantImageUrl(url);
+      if (meta && "colour" in meta) {
+        setSelectedColour(meta.colour ?? null);
+      }
+    },
+    []
+  );
 
   const category = useMemo(
     () => categories.find((item) => item.id === product.categoryId) ?? null,
     [categories, product.categoryId]
   );
 
-  const galleryImages = useMemo(() => {
-    const sorted = [...(product.images ?? [])].sort(
-      (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
-    );
-    return sorted.map((image) => ({
-      url: image.url,
-      alt: image.alt || product.name,
-    }));
-  }, [product.images, product.name]);
+  const galleryImages = useMemo(
+    () => buildGalleryImages(product, selectedColour),
+    [product, selectedColour]
+  );
 
   const crumbCategory = category;
 

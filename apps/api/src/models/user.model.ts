@@ -14,6 +14,9 @@ const addressSchema = new Schema(
     postalCode: { type: String, required: true },
     country: { type: String, required: true, default: "Canada" },
     phone: String,
+    isDefaultShipping: { type: Boolean, default: false },
+    isDefaultBilling: { type: Boolean, default: false },
+    /** @deprecated Prefer isDefaultShipping */
     isDefault: { type: Boolean, default: false },
   },
   { _id: true }
@@ -45,16 +48,26 @@ const userSchema = new Schema(
     },
     addresses: [addressSchema],
     wishlistProductIds: [{ type: Schema.Types.ObjectId, ref: "Product" }],
-    isActive: { type: Boolean, default: true },
+    isActive: { type: Boolean, default: true, index: true },
+    emailVerified: { type: Boolean, default: false, index: true },
+    emailVerificationTokenHash: { type: String, select: false },
+    emailVerificationExpiresAt: Date,
+    marketingConsent: { type: Boolean, default: false },
+    termsAcceptedAt: Date,
+    stripeCustomerId: { type: String, index: true, sparse: true },
     passwordResetTokenHash: { type: String, select: false },
     passwordResetExpiresAt: Date,
     lastLoginAt: Date,
+    internalNotes: { type: String, default: "" },
+    deletionRequestedAt: Date,
     deletedAt: Date,
   },
   { timestamps: true }
 );
 
 userSchema.index({ role: 1, createdAt: -1 });
+userSchema.index({ role: 1, lastLoginAt: -1 });
+userSchema.index({ wishlistProductIds: 1 });
 
 export type UserDocument = HydratedDocument<InferSchemaType<typeof userSchema>>;
 export const UserModel = model("User", userSchema);

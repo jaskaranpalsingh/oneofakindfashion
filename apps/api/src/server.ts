@@ -24,7 +24,7 @@ async function bootstrap() {
     }
     if (!env.integrations.cloudinaryConfigured) {
       logger.warn(
-        "Cloudinary is not configured — media uploads unavailable until set"
+        "Cloudinary is not configured — using local /uploads storage for product images"
       );
     }
   });
@@ -32,7 +32,7 @@ async function bootstrap() {
   const shutdown = async (signal: string) => {
     logger.info("Shutting down API", { signal });
     server.close(async () => {
-      const { disconnectDatabase } = await import("./config/db");
+      const { disconnectDatabase } = await import("./config/db.js");
       await disconnectDatabase();
       process.exit(0);
     });

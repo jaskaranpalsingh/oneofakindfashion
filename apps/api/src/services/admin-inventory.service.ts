@@ -85,18 +85,19 @@ export async function listInventory(options?: { q?: string }) {
 export async function adjustInventory(input: {
   productId: string;
   variantId: string;
-  quantityDelta: number;
+  /** Legacy delta API. Prefer mode + quantity. */
+  quantityDelta?: number;
+  mode?: "set" | "add" | "remove";
+  quantity?: number;
   reason?: string;
   actorUserId?: string;
+  type?: InventoryAdjustmentType;
 }) {
   if (!Types.ObjectId.isValid(input.productId)) {
     throw new AppError(400, "INVALID_ID", "Invalid product id");
   }
   if (!Types.ObjectId.isValid(input.variantId)) {
     throw new AppError(400, "INVALID_ID", "Invalid variant id");
-  }
-  if (!Number.isInteger(input.quantityDelta) || input.quantityDelta === 0) {
-    throw new AppError(400, "INVALID_DELTA", "quantityDelta must be a non-zero integer");
   }
 
   const product = await ProductModel.findOne({
@@ -112,7 +113,42 @@ export async function adjustInventory(input: {
     throw new AppError(404, "VARIANT_NOT_FOUND", "Variant not found");
   }
 
-  const nextStock = (variant.stockQuantity ?? 0) + input.quantityDelta;
+  const current = variant.stockQuantity ?? 0;
+  const reserved = variant.reservedQuantity ?? 0;
+  let quantityDelta = 0;
+
+  if (input.mode) {
+    if (!Number.isInteger(input.quantity) || (input.quantity ?? 0) < 0) {
+      throw new AppError(
+        400,
+        "INVALID_QUANTITY",
+        "quantity must be a non-negative whole number"
+      );
+    }
+    const qty = input.quantity ?? 0;
+    if (input.mode === "set") {
+      quantityDelta = qty - current;
+    } else if (input.mode === "add") {
+      quantityDelta = qty;
+    } else {
+      quantityDelta = -qty;
+    }
+  } else {
+    if (!Number.isInteger(input.quantityDelta) || input.quantityDelta === 0) {
+      throw new AppError(
+        400,
+        "INVALID_DELTA",
+        "quantityDelta must be a non-zero integer"
+      );
+    }
+    quantityDelta = input.quantityDelta!;
+  }
+
+  if (quantityDelta === 0) {
+    throw new AppError(400, "NO_CHANGE", "Stock is already at that level");
+  }
+
+  const nextStock = current + quantityDelta;
   if (nextStock < 0) {
     throw new AppError(
       400,
@@ -120,19 +156,29 @@ export async function adjustInventory(input: {
       "Adjustment would make stock negative"
     );
   }
+  if (nextStock < reserved) {
+    throw new AppError(
+      400,
+      "BELOW_RESERVED",
+      `Cannot set stock below reserved quantity (${reserved})`
+    );
+  }
 
   variant.stockQuantity = nextStock;
   await product.save();
+
+  const adjustmentType =
+    input.type ??
+    (quantityDelta > 0
+      ? InventoryAdjustmentType.RESTOCK
+      : InventoryAdjustmentType.MANUAL);
 
   await InventoryAdjustmentModel.create({
     productId: product._id,
     variantId: variant._id,
     sku: variant.sku,
-    type:
-      input.quantityDelta > 0
-        ? InventoryAdjustmentType.RESTOCK
-        : InventoryAdjustmentType.MANUAL,
-    quantityDelta: input.quantityDelta,
+    type: adjustmentType,
+    quantityDelta,
     quantityAfter: nextStock,
     reason: input.reason,
     actorUserId: input.actorUserId
@@ -144,15 +190,30 @@ export async function adjustInventory(input: {
     productId: String(product._id),
     variantId: String(variant._id),
     sku: variant.sku,
+    previousStock: current,
     stockQuantity: nextStock,
+    reservedQuantity: reserved,
     availableQuantity: availableStock(variant),
+    quantityDelta,
   };
 }
 
-export async function listInventoryAdjustments(limit = 30) {
-  const rows = await InventoryAdjustmentModel.find({})
+export async function listInventoryAdjustments(options?: {
+  limit?: number;
+  productId?: string;
+  variantId?: string;
+}) {
+  const filter: Record<string, unknown> = {};
+  if (options?.productId && Types.ObjectId.isValid(options.productId)) {
+    filter.productId = options.productId;
+  }
+  if (options?.variantId && Types.ObjectId.isValid(options.variantId)) {
+    filter.variantId = options.variantId;
+  }
+
+  const rows = await InventoryAdjustmentModel.find(filter)
     .sort({ createdAt: -1 })
-    .limit(Math.min(Math.max(limit, 1), 100))
+    .limit(Math.min(Math.max(options?.limit ?? 30, 1), 100))
     .lean();
 
   return rows.map((row) => ({
@@ -164,6 +225,7 @@ export async function listInventoryAdjustments(limit = 30) {
     quantityDelta: row.quantityDelta,
     quantityAfter: row.quantityAfter,
     reason: row.reason ?? null,
+    orderId: row.orderId ? String(row.orderId) : null,
     createdAt: row.createdAt,
   }));
 }

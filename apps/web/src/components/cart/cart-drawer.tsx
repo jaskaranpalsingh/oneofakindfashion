@@ -112,7 +112,7 @@ export function CartDrawer({
           <motion.button
             type="button"
             aria-label="Close cart"
-            className="absolute inset-0 bg-black/35"
+            className="absolute inset-0 bg-[#252A27]/40"
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0 }}
@@ -125,7 +125,7 @@ export function CartDrawer({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="absolute inset-y-0 right-0 flex h-[100dvh] w-full max-w-[460px] flex-col bg-white shadow-[-12px_0_40px_rgba(0,0,0,0.08)]"
+            className="absolute inset-y-0 right-0 flex h-[100dvh] w-full max-w-[420px] flex-col border-l border-[#E8E2D6] bg-[#FFFCF7]"
             initial={reduceMotion ? false : { x: "100%" }}
             animate={{ x: 0 }}
             exit={reduceMotion ? undefined : { x: "100%" }}
@@ -138,6 +138,10 @@ export function CartDrawer({
             <CartDrawerHeader
               itemCount={cart?.itemCount ?? 0}
               onClose={onClose}
+            />
+            <div
+              aria-hidden
+              className="mx-5 h-px bg-gradient-to-r from-[#B68A25]/70 via-[#D4AF37]/35 to-transparent sm:mx-6"
             />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 sm:px-6">
@@ -162,7 +166,7 @@ export function CartDrawer({
 
               {error ? (
                 <p
-                  className="mb-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                  className="mb-4 border border-[#8B3A3A]/25 bg-[#FFF5F5] px-3 py-2 text-sm text-[#8B3A3A]"
                   role="alert"
                 >
                   {error}
@@ -173,6 +177,8 @@ export function CartDrawer({
             {items.length > 0 ? (
               <CartDrawerFooter
                 subtotalCents={cart?.subtotalCents ?? 0}
+                discountCents={cart?.discountCents ?? 0}
+                couponCode={cart?.couponCode ?? null}
                 canCheckout={canCheckout}
                 onContinueShopping={onClose}
                 onNavigate={onClose}

@@ -1,14 +1,9 @@
-import {
-  DiscountType,
-  applyPercentageDiscount,
-  cartItemSchema,
-  clampDiscount,
-} from "@ookf/shared";
+import { cartItemSchema } from "@ookf/shared";
 import { Types } from "mongoose";
 import { CartModel } from "../models/cart.model";
-import { CouponModel } from "../models/coupon.model";
 import { ProductModel } from "../models/product.model";
 import { AppError } from "../utils/app-error";
+import { validateCouponForCart } from "./coupon-validation.service";
 
 function availableStock(variant: {
   stockQuantity: number;
@@ -202,97 +197,45 @@ export async function mergeGuestCart(userId: string, guestId?: string) {
   return hydrateCart(userCart.id);
 }
 
-async function resolveCouponDiscount(
-  couponCode: string | null | undefined,
-  subtotalCents: number
-) {
-  if (!couponCode) {
-    return { couponCode: null as string | null, discountCents: 0 };
-  }
-
-  const coupon = await CouponModel.findOne({
-    code: couponCode.toUpperCase(),
-    isActive: true,
-  }).lean();
-
-  if (!coupon) {
-    return { couponCode: null, discountCents: 0 };
-  }
-
-  const now = new Date();
-  if (coupon.startsAt && coupon.startsAt > now) {
-    return { couponCode: null, discountCents: 0 };
-  }
-  if (coupon.endsAt && coupon.endsAt < now) {
-    return { couponCode: null, discountCents: 0 };
-  }
-  if (
-    typeof coupon.usageLimit === "number" &&
-    (coupon.usedCount ?? 0) >= coupon.usageLimit
-  ) {
-    return { couponCode: null, discountCents: 0 };
-  }
-  if ((coupon.minimumOrderCents ?? 0) > subtotalCents) {
-    return { couponCode: coupon.code, discountCents: 0 };
-  }
-
-  let discountCents = 0;
-  if (coupon.type === DiscountType.PERCENTAGE) {
-    discountCents = applyPercentageDiscount(subtotalCents, coupon.value);
-  } else {
-    // Fixed coupons store CAD cents.
-    discountCents = Math.round(coupon.value);
-  }
-
-  return {
-    couponCode: coupon.code,
-    discountCents: clampDiscount(discountCents, subtotalCents),
-  };
-}
-
 export async function applyCoupon(
   identity: { userId?: string; guestId?: string },
   code: string
 ) {
   const cart = await getOrCreateCart(identity);
-  const hydrated = await hydrateCart(cart.id);
-  const normalized = code.trim().toUpperCase();
-  if (!normalized) {
-    throw new AppError(400, "COUPON_REQUIRED", "Enter a coupon code");
-  }
+  const lines = await buildCouponLines(cart.id);
 
-  const coupon = await CouponModel.findOne({
-    code: normalized,
-    isActive: true,
-  }).lean();
-  if (!coupon) {
-    throw new AppError(400, "COUPON_INVALID", "This coupon code is not valid");
-  }
+  const result = await validateCouponForCart({
+    code,
+    lines,
+    userId: identity.userId,
+  });
 
-  const now = new Date();
-  if (coupon.startsAt && coupon.startsAt > now) {
-    throw new AppError(400, "COUPON_NOT_STARTED", "This coupon is not active yet");
-  }
-  if (coupon.endsAt && coupon.endsAt < now) {
-    throw new AppError(400, "COUPON_EXPIRED", "This coupon has expired");
-  }
-  if (
-    typeof coupon.usageLimit === "number" &&
-    (coupon.usedCount ?? 0) >= coupon.usageLimit
-  ) {
-    throw new AppError(400, "COUPON_EXHAUSTED", "This coupon has reached its usage limit");
-  }
-  if ((coupon.minimumOrderCents ?? 0) > hydrated.subtotalCents) {
-    throw new AppError(
-      400,
-      "COUPON_MINIMUM",
-      "Your bag does not meet the minimum for this coupon"
-    );
-  }
-
-  cart.couponCode = coupon.code;
+  cart.couponCode = result.couponCode ?? undefined;
   await cart.save();
   return hydrateCart(cart.id);
+}
+
+async function buildCouponLines(cartId: string) {
+  const cart = await CartModel.findById(cartId);
+  if (!cart) return [];
+  const lines = [];
+  for (const item of cart.items) {
+    const product = await ProductModel.findById(item.productId)
+      .select("categoryId variants priceCents")
+      .lean();
+    if (!product) continue;
+    const variant = product.variants.find(
+      (entry) => String(entry._id) === String(item.variantId)
+    );
+    if (!variant) continue;
+    const unitPriceCents = variant.priceCents ?? product.priceCents;
+    lines.push({
+      productId: String(product._id),
+      categoryId: product.categoryId ? String(product.categoryId) : null,
+      lineTotalCents: unitPriceCents * item.quantity,
+    });
+  }
+  return lines;
 }
 
 export async function removeCoupon(identity: {
@@ -342,10 +285,16 @@ async function hydrateCart(cartId: string) {
     });
   }
 
-  const { couponCode, discountCents } = await resolveCouponDiscount(
-    cart.couponCode,
-    subtotalCents
-  );
+  const couponLines = await buildCouponLines(cartId);
+  const resolved = cart.couponCode
+    ? await validateCouponForCart({
+        code: cart.couponCode,
+        lines: couponLines,
+        soft: true,
+      })
+    : { couponCode: null, discountCents: 0 };
+  const couponCode = resolved.couponCode;
+  const discountCents = resolved.discountCents;
 
   // Drop stale coupon codes that are no longer valid.
   if (cart.couponCode && !couponCode) {

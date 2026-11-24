@@ -14,6 +14,7 @@ export type AdminRole = (typeof AdminRole)[keyof typeof AdminRole];
 export const ProductStatus = {
   DRAFT: "draft",
   PUBLISHED: "published",
+  UNPUBLISHED: "unpublished",
   ARCHIVED: "archived",
 } as const;
 export type ProductStatus = (typeof ProductStatus)[keyof typeof ProductStatus];
@@ -40,14 +41,30 @@ export const FulfillmentStatus = {
   PENDING_PAYMENT: "pending_payment",
   AWAITING_FULFILLMENT: "awaiting_fulfillment",
   PROCESSING: "processing",
+  PACKED: "packed",
   SHIPPED: "shipped",
+  IN_TRANSIT: "in_transit",
+  OUT_FOR_DELIVERY: "out_for_delivery",
   DELIVERED: "delivered",
+  DELIVERY_EXCEPTION: "delivery_exception",
+  RETURNED: "returned",
+  PREPARING_PICKUP: "preparing_pickup",
+  READY_FOR_PICKUP: "ready_for_pickup",
+  COLLECTED: "collected",
   CANCELLED: "cancelled",
   REFUNDED: "refunded",
   PARTIALLY_REFUNDED: "partially_refunded",
 } as const;
 export type FulfillmentStatus =
   (typeof FulfillmentStatus)[keyof typeof FulfillmentStatus];
+
+export const ShippingClass = {
+  STANDARD_CLOTHING: "standard_clothing",
+  HEAVY_BRIDAL: "heavy_bridal",
+  JEWELLERY: "jewellery",
+  OVERSIZED: "oversized",
+} as const;
+export type ShippingClass = (typeof ShippingClass)[keyof typeof ShippingClass];
 
 export const DiscountType = {
   PERCENTAGE: "percentage",

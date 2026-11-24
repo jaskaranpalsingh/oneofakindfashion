@@ -4,6 +4,7 @@ import path from "node:path";
 import { v2 as cloudinary } from "cloudinary";
 import { env } from "../config/env";
 import { AppError } from "../utils/app-error";
+import { localProductUploadDir } from "../utils/upload-paths";
 
 const ALLOWED_MIME = new Set([
   "image/jpeg",
@@ -29,13 +30,10 @@ function assertImageFile(file: Express.Multer.File) {
   }
 }
 
-function localUploadDir() {
-  // apps/api -> apps/web/public/uploads/products
-  return path.resolve(process.cwd(), "../web/public/uploads/products");
-}
-
 async function uploadLocal(file: Express.Multer.File) {
-  const dir = localUploadDir();
+  // Store under the API so Express can serve immediately.
+  // Writing into Next public/ after `next start` leaves files invisible until restart.
+  const dir = localProductUploadDir();
   await fs.mkdir(dir, { recursive: true });
   const ext =
     file.mimetype === "image/png"
@@ -93,6 +91,13 @@ async function uploadCloudinary(file: Express.Multer.File) {
 export async function uploadProductImages(files: Express.Multer.File[]) {
   if (!files.length) {
     throw new AppError(400, "NO_FILES", "At least one image file is required");
+  }
+  if (files.length > 6) {
+    throw new AppError(
+      400,
+      "TOO_MANY_IMAGES",
+      "Upload at most 6 images at a time"
+    );
   }
 
   const uploaded = [];

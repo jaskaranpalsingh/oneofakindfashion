@@ -36,7 +36,9 @@ export async function updateOrderFulfillmentHandler(
     {
       fulfillmentStatus: req.body?.fulfillmentStatus,
       trackingNumber: req.body?.trackingNumber,
+      trackingUrl: req.body?.trackingUrl,
       shippingCarrier: req.body?.shippingCarrier,
+      estimatedDeliveryAt: req.body?.estimatedDeliveryAt,
       internalNotes: req.body?.internalNotes,
     },
     req.auth?.userId

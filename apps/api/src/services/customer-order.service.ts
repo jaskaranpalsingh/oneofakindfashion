@@ -12,6 +12,7 @@ function mapCustomerOrder(order: Record<string, unknown>) {
     currency: string;
   };
   const items = (order.items as Array<Record<string, unknown>>) ?? [];
+  const events = (order.events as Array<Record<string, unknown>>) ?? [];
 
   return {
     id: String(order._id),
@@ -22,7 +23,10 @@ function mapCustomerOrder(order: Record<string, unknown>) {
     fulfillmentStatus: order.fulfillmentStatus,
     shippingMethod: order.shippingMethod,
     trackingNumber: order.trackingNumber ?? null,
+    trackingUrl: (order as { trackingUrl?: string }).trackingUrl ?? null,
     shippingCarrier: order.shippingCarrier ?? null,
+    estimatedDeliveryAt:
+      (order as { estimatedDeliveryAt?: Date }).estimatedDeliveryAt ?? null,
     customerName: order.customerName,
     customerEmail: order.customerEmail,
     totals,
@@ -42,7 +46,53 @@ function mapCustomerOrder(order: Record<string, unknown>) {
       imageUrl: item.imageUrl ?? null,
     })),
     shippingAddress: order.shippingAddress,
+    billingAddress: order.billingAddress ?? null,
+    stripeCheckoutSessionId: order.stripeCheckoutSessionId ?? null,
+    stripePaymentIntentId: order.stripePaymentIntentId ?? null,
+    events: events.map((event) => ({
+      type: String(event.type ?? ""),
+      message: String(event.message ?? ""),
+      createdAt: event.createdAt ?? null,
+    })),
   };
+}
+
+/**
+ * Link prior guest orders to an authenticated account when the checkout email
+ * matches. Requires the customer to own the email via registration/login —
+ * never expose guest orders based on an unverified browser-supplied email alone.
+ */
+export async function claimGuestOrdersForUser(userId: string, email: string) {
+  if (!Types.ObjectId.isValid(userId)) {
+    return { claimed: 0 };
+  }
+  const normalized = email.toLowerCase().trim();
+  if (!normalized) {
+    return { claimed: 0 };
+  }
+
+  const result = await OrderModel.updateMany(
+    {
+      $and: [
+        { customerEmail: normalized },
+        {
+          $or: [{ userId: { $exists: false } }, { userId: null }],
+        },
+      ],
+    },
+    {
+      $set: { userId: new Types.ObjectId(userId) },
+      $push: {
+        events: {
+          type: "account_linked",
+          message: "Order linked to customer account after verified sign-in",
+          createdAt: new Date(),
+        },
+      },
+    }
+  );
+
+  return { claimed: result.modifiedCount ?? 0 };
 }
 
 export async function listCustomerOrders(userId: string) {

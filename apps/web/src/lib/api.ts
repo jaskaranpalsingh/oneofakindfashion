@@ -12,18 +12,36 @@ export class ApiClientError extends Error {
   }
 }
 
+type ApiFetchInit = RequestInit & {
+  next?: {
+    revalidate?: number | false;
+    tags?: string[];
+  };
+};
+
 export async function apiFetch<T>(
   path: string,
-  init?: RequestInit
+  init?: ApiFetchInit
 ): Promise<T> {
+  const { next, cache, headers, ...rest } = init ?? {};
+
+  // Public catalogue calls may pass `next.revalidate` / tags.
+  // Private calls (cart, auth, checkout) keep cache: "no-store".
+  const cacheOptions =
+    cache !== undefined
+      ? { cache }
+      : next
+        ? { next }
+        : { cache: "no-store" as RequestCache };
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
+    ...rest,
+    ...cacheOptions,
     headers: {
       "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
+      ...(headers ?? {}),
     },
     credentials: "include",
-    cache: "no-store",
   });
 
   const payload = (await response.json().catch(() => null)) as

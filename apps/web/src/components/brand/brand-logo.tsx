@@ -5,15 +5,32 @@ import { cn } from "@/lib/utils";
 type BrandLogoProps = {
   href?: string;
   className?: string;
-  size?: "sm" | "md" | "lg" | "header";
+  size?: "sm" | "md" | "lg" | "header" | "login";
   priority?: boolean;
+  /** Use solid logo (green oval) for light backgrounds where gold-on-black is hard to see. */
+  variant?: "transparent" | "solid";
 };
 
 const SIZE_CLASS = {
-  sm: "h-10 w-auto max-w-[7.5rem]",
-  md: "h-12 w-auto max-w-[9rem] sm:h-14 sm:max-w-[10.5rem]",
-  lg: "h-14 w-auto max-w-[10rem] sm:h-16 sm:max-w-[12rem]",
-  header: "h-12 w-auto max-w-[8rem] sm:h-14 sm:max-w-[9.5rem] lg:h-16 lg:max-w-[12.5rem]",
+  sm: "h-10 w-10",
+  md: "h-12 w-12 sm:h-14 sm:w-14",
+  lg: "h-16 w-16 sm:h-[4.5rem] sm:w-[4.5rem]",
+  header: "h-12 w-12 sm:h-14 sm:w-14 lg:h-16 lg:w-16",
+  login: "h-28 w-28 sm:h-32 sm:w-32",
+} as const;
+
+/** Match displayed CSS size so next/image does not ship the full 819px master. */
+const SIZE_PX = {
+  sm: 40,
+  md: 56,
+  lg: 72,
+  header: 64,
+  login: 128,
+} as const;
+
+const SRC = {
+  transparent: "/brand/one-of-a-kind-fashion-logo-transparent.png",
+  solid: "/brand/one-of-a-kind-fashion-logo.png",
 } as const;
 
 export function BrandLogo({
@@ -21,29 +38,45 @@ export function BrandLogo({
   className,
   size = "md",
   priority = false,
+  variant = "transparent",
 }: BrandLogoProps) {
+  const px = SIZE_PX[size];
   const image = (
     <Image
-      src="/brand/one-of-a-kind-fashion-logo-transparent.png"
+      src={SRC[variant]}
       alt="ONE OF A KIND FASHION"
-      width={720}
-      height={480}
+      width={px}
+      height={px}
+      sizes={`${px}px`}
+      quality={90}
       priority={priority}
-      className={cn(
-        "object-contain object-left",
-        SIZE_CLASS[size],
-        className
-      )}
+      className="h-full w-full object-contain object-center"
     />
   );
 
-  if (!href) return image;
+  const frame = (
+    <span
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden",
+        SIZE_CLASS[size],
+        className
+      )}
+    >
+      {image}
+    </span>
+  );
+
+  if (!href) return frame;
 
   return (
     <Link
       href={href}
       aria-label="ONE OF A KIND FASHION home"
-      className="relative z-10 inline-flex shrink-0 items-center"
+      className={cn(
+        "relative z-10 inline-flex shrink-0 items-center justify-center",
+        SIZE_CLASS[size],
+        className
+      )}
     >
       {image}
     </Link>

@@ -2,44 +2,58 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatCad } from "@ookf/shared";
 import { adminFetch, type AdminOrderRow } from "@/lib/admin-api";
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 export default function AdminOrdersPage() {
   const [q, setQ] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("");
   const [fulfillmentStatus, setFulfillmentStatus] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
 
   const query = useQuery({
-    queryKey: ["admin", "orders", q, paymentStatus, fulfillmentStatus],
+    queryKey: ["admin", "orders", debouncedQ, paymentStatus, fulfillmentStatus],
     queryFn: () => {
       const params = new URLSearchParams({ limit: "50" });
-      if (q.trim()) params.set("q", q.trim());
+      if (debouncedQ.trim()) params.set("q", debouncedQ.trim());
       if (paymentStatus) params.set("paymentStatus", paymentStatus);
       if (fulfillmentStatus) params.set("fulfillmentStatus", fulfillmentStatus);
       return adminFetch<AdminOrderRow[]>(
         `/api/v1/admin/orders?${params.toString()}`
       );
     },
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
   });
+
+  const orders = query.data ?? [];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-3xl text-ink">Orders</h1>
           <p className="mt-1 text-sm text-muted">
-            Live order records from MongoDB after checkout.
+            Live order records from MongoDB · updates every 15s
           </p>
         </div>
-        <Link
-          href="/account/login"
-          className="text-xs font-semibold uppercase tracking-[0.14em] text-green"
+        <button
+          type="button"
+          onClick={() => void query.refetch()}
+          disabled={query.isFetching}
+          className="border border-border bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-green transition hover:border-gold disabled:opacity-60"
         >
-          Admin login
-        </Link>
+          {query.isFetching ? "Refreshing…" : "Refresh"}
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -58,7 +72,9 @@ export default function AdminOrdersPage() {
           <option value="pending">Pending</option>
           <option value="paid">Paid</option>
           <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
           <option value="refunded">Refunded</option>
+          <option value="partially_refunded">Partially refunded</option>
         </select>
         <select
           value={fulfillmentStatus}
@@ -66,11 +82,13 @@ export default function AdminOrdersPage() {
           className="border border-border bg-white px-3 py-2 text-sm"
         >
           <option value="">All fulfillment</option>
+          <option value="pending_payment">Pending payment</option>
           <option value="awaiting_fulfillment">Awaiting fulfillment</option>
           <option value="processing">Processing</option>
           <option value="shipped">Shipped</option>
           <option value="delivered">Delivered</option>
           <option value="cancelled">Cancelled</option>
+          <option value="refunded">Refunded</option>
         </select>
       </div>
 
@@ -95,7 +113,17 @@ export default function AdminOrdersPage() {
             </tr>
           </thead>
           <tbody>
-            {(query.data ?? []).map((order) => (
+            {query.isLoading
+              ? Array.from({ length: 4 }).map((_, index) => (
+                  <tr key={`skeleton-${index}`} className="border-b border-border/70">
+                    <td colSpan={8} className="px-4 py-4">
+                      <div className="h-4 w-full animate-pulse rounded bg-[#EFEAE0]" />
+                    </td>
+                  </tr>
+                ))
+              : null}
+
+            {orders.map((order) => (
               <tr key={order.id} className="border-b border-border/70">
                 <td className="px-4 py-3 font-medium text-ink">
                   {order.orderNumber}
@@ -127,16 +155,29 @@ export default function AdminOrdersPage() {
                 </td>
               </tr>
             ))}
-            {!query.isLoading && (query.data?.length ?? 0) === 0 ? (
+
+            {!query.isLoading && orders.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-muted">
-                  No orders yet. Place a checkout to see records here.
+                  No orders match these filters. Complete a checkout on the
+                  storefront and refresh — new paid orders appear here
+                  automatically.
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
       </div>
+
+      {!query.isLoading && orders.length > 0 ? (
+        <p className="text-xs text-muted">
+          Showing {orders.length} order{orders.length === 1 ? "" : "s"}
+          {debouncedQ || paymentStatus || fulfillmentStatus
+            ? " (filtered)"
+            : ""}
+          .
+        </p>
+      ) : null}
     </div>
   );
 }

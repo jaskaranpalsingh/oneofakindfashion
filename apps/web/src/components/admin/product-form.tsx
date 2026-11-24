@@ -1,14 +1,19 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { ProductStatus, ProductType } from "@ookf/shared";
+import {
+  ProductImageManager,
+  serializeManagedImages,
+  type ManagedProductImage,
+} from "@/components/admin/product-image-manager";
 import { adminFetch } from "@/lib/admin-api";
 import { getApiBaseUrl } from "@/lib/api";
+import { revalidateCatalogue } from "@/lib/revalidate-catalogue";
 import { cn } from "@/lib/utils";
 
 type CategoryOption = {
@@ -16,13 +21,6 @@ type CategoryOption = {
   name: string;
   slug: string;
   parentId: string | null;
-};
-
-type ProductImage = {
-  url: string;
-  publicId?: string;
-  alt?: string;
-  sortOrder?: number;
 };
 
 type VariantDraft = {
@@ -45,13 +43,6 @@ function dollarsToCents(value: string) {
 function productTypeForCategory(slug: string): (typeof ProductType)[keyof typeof ProductType] {
   if (slug.includes("jewell")) return ProductType.JEWELLERY;
   return ProductType.CLOTHING;
-}
-
-function mediaUrl(url: string) {
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  // Site-relative paths (/demo-products, /uploads, …) are served by Next.js public/
-  if (url.startsWith("/")) return url;
-  return `/${url}`;
 }
 
 export function AdminProductForm() {
@@ -93,8 +84,7 @@ export function AdminProductForm() {
   const [tags, setTags] = useState("");
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
-  const [images, setImages] = useState<ProductImage[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [images, setImages] = useState<ManagedProductImage[]>([]);
   const [variants, setVariants] = useState<VariantDraft[]>([
     {
       key: "v1",
@@ -142,45 +132,6 @@ export function AdminProductForm() {
   const isJewellery = selectedCategory
     ? selectedCategory.slug.includes("jewell")
     : false;
-
-  async function uploadImages(files: FileList | null) {
-    if (!files?.length) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const body = new FormData();
-      Array.from(files).forEach((file) => body.append("images", file));
-      const response = await fetch(
-        `${getApiBaseUrl()}/api/v1/admin/uploads/images`,
-        {
-          method: "POST",
-          credentials: "include",
-          body,
-        }
-      );
-      const json = await response.json();
-      if (!response.ok || !json.success) {
-        throw new Error(json?.error?.message ?? "Image upload failed");
-      }
-      const uploaded = json.data as Array<{
-        url: string;
-        publicId?: string;
-      }>;
-      setImages((current) => [
-        ...current,
-        ...uploaded.map((item, index) => ({
-          url: item.url,
-          publicId: item.publicId,
-          alt: name || "Product image",
-          sortOrder: current.length + index,
-        })),
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Image upload failed");
-    } finally {
-      setUploading(false);
-    }
-  }
 
   function buildPayload(status: "draft" | "published") {
     const priceCents = dollarsToCents(priceDollars);
@@ -267,11 +218,9 @@ export function AdminProductForm() {
         .filter(Boolean),
       seoTitle: seoTitle.trim() || undefined,
       seoDescription: seoDescription.trim() || undefined,
-      images: images.map((image, index) => ({
-        url: image.url,
-        publicId: image.publicId,
+      images: serializeManagedImages(images).map((image) => ({
+        ...image,
         alt: image.alt || name.trim(),
-        sortOrder: index,
       })),
       clothing: isJewellery
         ? undefined
@@ -313,6 +262,7 @@ export function AdminProductForm() {
       });
       await queryClient.invalidateQueries({ queryKey: ["admin", "products"] });
       await queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+      await revalidateCatalogue(created.slug);
       setSuccess({
         message:
           status === "published"
@@ -452,76 +402,12 @@ export function AdminProductForm() {
           </section>
 
           <section className="border border-border bg-white p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="font-serif text-2xl text-green">Product images</h2>
-              <label className="inline-flex cursor-pointer items-center gap-2 border border-border bg-ivory px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-green hover:border-gold">
-                <Upload className="h-3.5 w-3.5" />
-                {uploading ? "Uploading…" : "Upload"}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => void uploadImages(e.target.files)}
-                />
-              </label>
-            </div>
-            <p className="mt-2 text-xs text-muted">
-              JPEG, PNG, or WebP · max 5MB each · first image is primary
-            </p>
-            {images.length === 0 ? (
-              <p className="mt-6 text-sm text-muted">No images uploaded yet.</p>
-            ) : (
-              <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {images.map((image, index) => (
-                  <li
-                    key={`${image.url}-${index}`}
-                    className="relative border border-border bg-ivory p-2"
-                  >
-                    <div className="relative aspect-[3/4] overflow-hidden bg-white">
-                      <Image
-                        src={mediaUrl(image.url)}
-                        alt={image.alt || "Product"}
-                        fill
-                        unoptimized
-                        className="object-cover"
-                      />
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        className="text-[10px] font-semibold uppercase tracking-[0.12em] text-green"
-                        onClick={() =>
-                          setImages((current) => {
-                            const next = [...current];
-                            const [picked] = next.splice(index, 1);
-                            next.unshift(picked);
-                            return next.map((item, i) => ({
-                              ...item,
-                              sortOrder: i,
-                            }));
-                          })
-                        }
-                      >
-                        {index === 0 ? "Primary" : "Make primary"}
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Remove image"
-                        onClick={() =>
-                          setImages((current) =>
-                            current.filter((_, i) => i !== index)
-                          )
-                        }
-                        className="text-red-700"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ProductImageManager
+              images={images}
+              onChange={setImages}
+              defaultAlt={name.trim() || "Product image"}
+              disabled={pending}
+            />
           </section>
 
           <section className="border border-border bg-white p-5">
@@ -781,7 +667,7 @@ export function AdminProductForm() {
             <div className="mt-6 flex flex-col gap-2">
               <button
                 type="button"
-                disabled={pending || uploading}
+                disabled={pending}
                 onClick={() => void submit("draft")}
                 className="inline-flex h-11 items-center justify-center border border-border bg-white text-xs font-semibold uppercase tracking-[0.14em] text-green hover:border-gold disabled:opacity-60"
               >
@@ -790,7 +676,7 @@ export function AdminProductForm() {
               </button>
               <button
                 type="button"
-                disabled={pending || uploading}
+                disabled={pending}
                 onClick={() => void submit("published")}
                 className={cn(
                   "inline-flex h-11 items-center justify-center bg-[#003F2D] text-xs font-semibold uppercase tracking-[0.14em] text-white",

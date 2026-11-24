@@ -18,7 +18,10 @@ import { cn } from "@/lib/utils";
 
 type ProductPurchasePanelProps = {
   product: ProductDetail;
-  onActiveImageChange?: (url: string | null) => void;
+  onActiveImageChange?: (
+    url: string | null,
+    meta?: { colour?: string | null }
+  ) => void;
 };
 
 export function ProductPurchasePanel({
@@ -56,8 +59,10 @@ export function ProductPurchasePanel({
       : null;
 
   useEffect(() => {
-    onActiveImageChange?.(activeImageUrl);
-  }, [activeImageUrl, onActiveImageChange]);
+    onActiveImageChange?.(activeImageUrl, {
+      colour: selection.colour ?? null,
+    });
+  }, [activeImageUrl, onActiveImageChange, selection.colour]);
 
   async function handleAddToCart() {
     if (!selectedVariant?.isAvailable) return;

@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, ChevronLeft, ChevronRight, ZoomIn } from "lucide-react";
 import { formatCad, type ProductSummary } from "@ookf/shared";
 import { useCart } from "@/components/cart/cart-provider";
+import { ProductImageLightbox } from "@/components/commerce/product-image-lightbox";
 import { QuantityStepper } from "@/components/commerce/quantity-stepper";
 import { VariantOptionPicker } from "@/components/commerce/variant-option-picker";
 import { Dialog } from "@/components/ui/dialog";
@@ -32,6 +33,8 @@ export function ProductQuickView({
   const [pending, setPending] = useState<"cart" | "buy" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const zoomButtonRef = useRef<HTMLButtonElement>(null);
 
   const {
     optionKeys,
@@ -103,15 +106,25 @@ export function ProductQuickView({
     setGalleryIndex(index >= 0 ? index : 0);
   }, [activeImageUrl, detail]);
 
-  const gallery = detail
-    ? Array.from(
-        new Set(
-          [activeImageUrl, ...detail.images.map((image) => image.url)].filter(
-            (url): url is string => Boolean(url)
-          )
-        )
-      )
-    : [];
+  const gallery = useMemo(() => {
+    if (!detail) return [] as Array<{ url: string; alt?: string }>;
+    const urls = [
+      activeImageUrl,
+      ...[...(detail.images ?? [])]
+        .sort((a, b) => {
+          if (a.isPrimary && !b.isPrimary) return -1;
+          if (!a.isPrimary && b.isPrimary) return 1;
+          return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+        })
+        .map((image) => image.url),
+    ].filter((url): url is string => Boolean(url));
+    const unique = Array.from(new Set(urls));
+    return unique.map((url) => ({
+      url,
+      alt:
+        detail.images.find((image) => image.url === url)?.alt || detail.name,
+    }));
+  }, [activeImageUrl, detail]);
 
   const mainImage = gallery[galleryIndex] ?? gallery[0] ?? null;
 
@@ -152,6 +165,7 @@ export function ProductQuickView({
   }
 
   return (
+    <>
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
@@ -187,26 +201,72 @@ export function ProductQuickView({
           <div className="bg-[#F8F5EB] p-4 sm:p-5 lg:p-6">
             <div className="relative aspect-[4/5] overflow-hidden bg-white">
               {mainImage ? (
-                <Image
-                  src={mainImage}
-                  alt={detail.name}
-                  fill
-                  sizes="(max-width: 1024px) 100vw, 480px"
-                  className="object-cover object-center"
-                  priority
-                />
+                <button
+                  type="button"
+                  className="absolute inset-0 cursor-zoom-in"
+                  onClick={() => setZoomOpen(true)}
+                  aria-label={`Enlarge image of ${detail.name}`}
+                >
+                  <Image
+                    src={mainImage.url}
+                    alt={mainImage.alt || detail.name}
+                    fill
+                    sizes="(max-width: 1024px) 100vw, 480px"
+                    className="object-cover object-center"
+                    priority
+                  />
+                </button>
               ) : (
                 <div className="flex h-full items-center justify-center text-[11px] uppercase tracking-[0.2em] text-[#6F746E]">
                   Image coming soon
                 </div>
               )}
+
+              {gallery.length > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Previous image"
+                    onClick={() =>
+                      setGalleryIndex(
+                        (galleryIndex - 1 + gallery.length) % gallery.length
+                      )
+                    }
+                    className="absolute left-2 top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center border border-[#E5DFD4] bg-white/95 text-[#003F2D]"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next image"
+                    onClick={() =>
+                      setGalleryIndex((galleryIndex + 1) % gallery.length)
+                    }
+                    className="absolute right-2 top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center border border-[#E5DFD4] bg-white/95 text-[#003F2D]"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </>
+              ) : null}
+
+              {mainImage ? (
+                <button
+                  ref={zoomButtonRef}
+                  type="button"
+                  onClick={() => setZoomOpen(true)}
+                  className="absolute bottom-2 right-2 z-10 inline-flex h-9 w-9 items-center justify-center border border-[#E5DFD4] bg-white/95 text-[#003F2D]"
+                  aria-label="Open fullscreen product image viewer"
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
 
             {gallery.length > 1 ? (
               <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                {gallery.map((url, index) => (
+                {gallery.map((image, index) => (
                   <button
-                    key={url}
+                    key={image.url}
                     type="button"
                     onClick={() => setGalleryIndex(index)}
                     className={cn(
@@ -218,7 +278,7 @@ export function ProductQuickView({
                     aria-label={`View image ${index + 1}`}
                   >
                     <Image
-                      src={url}
+                      src={image.url}
                       alt=""
                       fill
                       sizes="56px"
@@ -347,5 +407,16 @@ export function ProductQuickView({
         </div>
       ) : null}
     </Dialog>
+
+    <ProductImageLightbox
+      open={zoomOpen}
+      onClose={() => setZoomOpen(false)}
+      images={gallery}
+      index={galleryIndex}
+      onIndexChange={setGalleryIndex}
+      productName={detail?.name ?? product?.name ?? "Product"}
+      returnFocusRef={zoomButtonRef}
+    />
+    </>
   );
 }

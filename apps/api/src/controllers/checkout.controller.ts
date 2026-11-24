@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import {
   createCheckoutSession,
+  quoteCheckout,
   setBuyNowIntent,
   getOrderByStripeSession,
   cancelPendingCheckoutOrder,
@@ -11,6 +12,17 @@ import {
 } from "../utils/cart-identity";
 import { sendSuccess } from "../utils/api-response";
 import { AppError } from "../utils/app-error";
+
+export async function quoteCheckoutHandler(req: Request, res: Response) {
+  const identity = ensureCartIdentity(req, res);
+  await persistCartSession(req);
+  const quote = await quoteCheckout(
+    identity,
+    req.body,
+    req.session.buyNow ?? null
+  );
+  return sendSuccess(res, quote);
+}
 
 export async function createCheckoutHandler(req: Request, res: Response) {
   const identity = ensureCartIdentity(req, res);

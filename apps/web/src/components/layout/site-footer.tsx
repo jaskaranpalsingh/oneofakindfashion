@@ -21,6 +21,7 @@ const CARE_LINKS = [
   { href: "/contact", label: "Contact Us" },
   { href: "/faq", label: "FAQs" },
   { href: "/shipping-policy", label: "Shipping Policy" },
+  { href: "/track-order", label: "Track Order" },
   { href: "/returns", label: "Returns" },
   { href: "/privacy-policy", label: "Privacy Policy" },
 ] as const;

@@ -50,6 +50,7 @@ export function CollectionCard({
               src={collection.imageUrl}
               alt=""
               fill
+              quality={80}
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
               className={cn(
                 "object-cover object-center transition duration-[600ms] ease-out",

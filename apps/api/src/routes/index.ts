@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { accountRouter } from "./account.routes";
 import { adminCatalogueRouter } from "./admin/catalogue.routes";
 import { authRouter } from "./auth.routes";
 import { cartRouter } from "./cart.routes";
@@ -12,6 +13,7 @@ export const apiRouter = Router();
 
 apiRouter.use("/health", healthRouter);
 apiRouter.use("/auth", authRouter);
+apiRouter.use("/account", accountRouter);
 apiRouter.use("/categories", categoryRouter);
 apiRouter.use("/products", productRouter);
 apiRouter.use("/cart", cartRouter);
@@ -22,10 +24,12 @@ apiRouter.use("/admin", adminCatalogueRouter);
 // Public store settings (announcement, contact) — no secrets.
 apiRouter.get("/settings", async (req, res, next) => {
   try {
-    const { getStoreSettings } = await import("../services/admin-settings.service");
-    const { sendSuccess } = await import("../utils/api-response");
+    const { getStoreSettings } = await import(
+      "../services/admin-settings.service.js"
+    );
+    const { sendSuccess } = await import("../utils/api-response.js");
     const settings = await getStoreSettings();
-    const { env } = await import("../config/env");
+    const { env } = await import("../config/env.js");
     return sendSuccess(res, {
       storeName: settings.storeName,
       phone: settings.phone,
@@ -46,11 +50,31 @@ apiRouter.get("/settings", async (req, res, next) => {
         localPickupEnabled: settings.shipping.localPickupEnabled,
         freeShippingMinimumCents:
           settings.shipping.freeShippingMinimumCents,
+        standardCents: settings.shipping.standardCents,
+        expressCents: settings.shipping.expressCents,
+        standardEta: settings.shipping.standardEta ?? null,
+        expressEta: settings.shipping.expressEta ?? null,
+        pickupInstructions:
+          settings.shipping.pickupInstructions ?? null,
+        pickupHours: settings.shipping.pickupHours ?? null,
+        processingDays: settings.shipping.processingDays ?? 2,
+        handlingDays: settings.shipping.handlingDays ?? 1,
       },
       payments: {
         stripeConfigured: env.integrations.stripeConfigured,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/shipping/config", async (req, res, next) => {
+  try {
+    const { publicShippingConfigHandler } = await import(
+      "../controllers/shipping.controller.js"
+    );
+    return publicShippingConfigHandler(req, res);
   } catch (error) {
     next(error);
   }

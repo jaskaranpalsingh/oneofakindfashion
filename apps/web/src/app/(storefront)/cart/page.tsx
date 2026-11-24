@@ -12,15 +12,7 @@ import { Container } from "@/components/ui/container";
 
 export default function CartPage() {
   const reduceMotion = useReducedMotion();
-  const {
-    cart,
-    loading,
-    updateItem,
-    removeItem,
-    refreshCart,
-    applyCoupon,
-    clearCoupon,
-  } = useCart();
+  const { cart, loading, updateItem, removeItem, refreshCart } = useCart();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -162,12 +154,6 @@ export default function CartPage() {
                 discountCents={discountCents}
                 couponCode={cart?.couponCode ?? null}
                 canCheckout={canCheckout}
-                onApplyCoupon={async (code) => {
-                  await applyCoupon(code);
-                }}
-                onRemoveCoupon={async () => {
-                  await clearCoupon();
-                }}
               />
             </motion.div>
           </div>

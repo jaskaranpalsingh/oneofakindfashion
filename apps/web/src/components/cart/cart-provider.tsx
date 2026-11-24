@@ -21,6 +21,7 @@ import {
   type CartSnapshot,
 } from "@/lib/cart";
 import { CartDrawer } from "@/components/cart/cart-drawer";
+import { AUTH_CHANGE_EVENT } from "@/lib/wishlist-store";
 
 type CartContextValue = {
   cart: CartSnapshot | null;
@@ -67,6 +68,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshCart();
+    const onAuthChange = () => {
+      setCart(null);
+      setLoading(true);
+      void refreshCart();
+    };
+    window.addEventListener(AUTH_CHANGE_EVENT, onAuthChange);
+    return () => window.removeEventListener(AUTH_CHANGE_EVENT, onAuthChange);
   }, [refreshCart]);
 
   const addToCart = useCallback(

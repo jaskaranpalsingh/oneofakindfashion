@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { formatCad } from "@ookf/shared";
 import type { ProductDetail } from "@/lib/catalogue";
+import { getApiBaseUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type TabId = "details" | "shipping" | "care";
@@ -56,6 +58,92 @@ function collectSpecs(
     if (formatted) rows.push({ label, value: formatted });
   }
   return rows;
+}
+
+function ShippingReturnsPanel() {
+  const [config, setConfig] = useState<{
+    freeShippingMinimumCents: number;
+    localPickupEnabled: boolean;
+    methods: Array<{
+      name: string;
+      baseRateCents: number;
+      etaLabel: string;
+      isPickup: boolean;
+    }>;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(
+          `${getApiBaseUrl()}/api/v1/shipping/config`,
+          { credentials: "include" }
+        );
+        const json = await response.json();
+        if (!cancelled && response.ok && json.success) {
+          setConfig(json.data);
+        }
+      } catch {
+        // Keep static fallback copy below.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="max-w-xl space-y-4 text-sm leading-relaxed text-[#252A27]">
+      <p>Ships within Canada. International shipping is not available.</p>
+      {config ? (
+        <ul className="space-y-2 text-[#656B68]">
+          {config.methods
+            .filter((method) => !method.isPickup)
+            .map((method) => (
+              <li key={method.name}>
+                {method.name}
+                {method.baseRateCents > 0
+                  ? ` from ${formatCad(method.baseRateCents)}`
+                  : ""}
+                {method.etaLabel ? ` · ${method.etaLabel}` : ""}
+              </li>
+            ))}
+          <li>
+            Free standard shipping from{" "}
+            {formatCad(config.freeShippingMinimumCents)} merchandise subtotal
+            (after discounts).
+          </li>
+          {config.localPickupEnabled ? (
+            <li>Edmonton local pickup available at checkout.</li>
+          ) : null}
+        </ul>
+      ) : (
+        <p className="text-[#656B68]">
+          Shipping rates and delivery timing are confirmed at checkout based on
+          your destination.
+        </p>
+      )}
+      <ul className="space-y-2 text-[#656B68]">
+        <li>
+          <Link
+            href="/shipping-policy"
+            className="font-medium text-[#003F2D] underline-offset-4 hover:underline"
+          >
+            Shipping Policy
+          </Link>
+        </li>
+        <li>
+          <Link
+            href="/returns"
+            className="font-medium text-[#003F2D] underline-offset-4 hover:underline"
+          >
+            Returns
+          </Link>
+        </li>
+      </ul>
+    </div>
+  );
 }
 
 export function ProductDetailsTabs({ product }: { product: ProductDetail }) {
@@ -177,31 +265,7 @@ export function ProductDetailsTabs({ product }: { product: ProductDetail }) {
             ) : null}
 
             {active === "shipping" ? (
-              <div className="max-w-xl space-y-4 text-sm leading-relaxed text-[#252A27]">
-                <p>
-                  Shipping rates, delivery timing, and return eligibility depend on
-                  your order and destination. Review the current policies before
-                  placing your order.
-                </p>
-                <ul className="space-y-2 text-[#656B68]">
-                  <li>
-                    <Link
-                      href="/shipping-policy"
-                      className="font-medium text-[#003F2D] underline-offset-4 hover:underline"
-                    >
-                      Shipping Policy
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      href="/returns"
-                      className="font-medium text-[#003F2D] underline-offset-4 hover:underline"
-                    >
-                      Returns
-                    </Link>
-                  </li>
-                </ul>
-              </div>
+              <ShippingReturnsPanel />
             ) : null}
 
             {active === "care" ? (

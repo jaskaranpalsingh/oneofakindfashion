@@ -1,66 +1,52 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  AUTH_CHANGE_EVENT,
+  getWishlistServerSnapshot,
+  getWishlistSnapshot,
+  hydrateWishlistFromAuth,
+  subscribeWishlist,
+  toggleWishlistProduct,
+} from "@/lib/wishlist-store";
 
-const STORAGE_KEY = "ookf_wishlist";
 const EMPTY_IDS: string[] = [];
 
-type Listener = () => void;
-
-let listeners = new Set<Listener>();
-let cachedIds: string[] = EMPTY_IDS;
-
-function readIds(): string[] {
-  if (typeof window === "undefined") return EMPTY_IDS;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY_IDS;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return EMPTY_IDS;
-    const ids = parsed.filter((id): id is string => typeof id === "string");
-    return ids.length === 0 ? EMPTY_IDS : ids;
-  } catch {
-    return EMPTY_IDS;
-  }
-}
-
-function getSnapshot(): string[] {
-  return cachedIds;
-}
-
-function getServerSnapshot(): string[] {
-  return EMPTY_IDS;
-}
-
-function emit() {
-  cachedIds = readIds();
-  listeners.forEach((listener) => listener());
-}
-
-function subscribe(listener: Listener) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function writeIds(ids: string[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
-  emit();
-}
-
 export function useWishlist() {
-  const ids = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const ids = useSyncExternalStore(
+    subscribeWishlist,
+    getWishlistSnapshot,
+    getWishlistServerSnapshot
+  );
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    cachedIds = readIds();
-    setHydrated(true);
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === STORAGE_KEY) emit();
+    let cancelled = false;
+    void (async () => {
+      await hydrateWishlistFromAuth();
+      if (!cancelled) setHydrated(true);
+    })();
+
+    const onAuthChange = () => {
+      void hydrateWishlistFromAuth();
     };
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key &&
+        (event.key.startsWith("ookf_wishlist") ||
+          event.key === "ookf_wishlist:owner")
+      ) {
+        void hydrateWishlistFromAuth();
+      }
+    };
+
+    window.addEventListener(AUTH_CHANGE_EVENT, onAuthChange);
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AUTH_CHANGE_EVENT, onAuthChange);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   const isSaved = useCallback(
@@ -68,16 +54,16 @@ export function useWishlist() {
     [ids]
   );
 
-  const toggle = useCallback((productId: string) => {
-    const current = readIds();
-    const next = current.includes(productId)
-      ? current.filter((id) => id !== productId)
-      : [...current, productId];
-    writeIds(next.length === 0 ? [] : next);
+  const toggle = useCallback(async (productId: string) => {
+    try {
+      await toggleWishlistProduct(productId);
+    } catch {
+      // Optimistic update rolled back inside the store.
+    }
   }, []);
 
   return {
-    ids,
+    ids: ids.length === 0 ? EMPTY_IDS : ids,
     hydrated,
     isSaved,
     toggle,

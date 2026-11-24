@@ -13,14 +13,51 @@ import { OrderDocument, OrderModel } from "../models/order.model";
 import { PaymentModel } from "../models/payment.model";
 import { ProductModel } from "../models/product.model";
 import { StoreSettingsModel } from "../models/content.model";
+import { UserModel } from "../models/user.model";
 import { AppError } from "../utils/app-error";
 import { getCart } from "./cart.service";
+import {
+  incrementCouponUsageAtomic,
+  validateCouponForCart,
+} from "./coupon-validation.service";
 import { sendOrderConfirmationEmail } from "./email.service";
 import {
   commitInventoryForOrder,
   releaseInventoryForOrder,
   reserveInventoryForOrder,
 } from "./inventory-reservation.service";
+import { quoteShipping } from "./shipping.service";
+
+async function resolveStripeCustomerId(
+  stripe: Stripe,
+  userId: string | undefined,
+  email: string,
+  name: string
+) {
+  if (!userId) return undefined;
+
+  const user = await UserModel.findById(userId)
+    .select("stripeCustomerId email firstName lastName")
+    .lean();
+  if (!user) return undefined;
+
+  if (user.stripeCustomerId) {
+    return user.stripeCustomerId;
+  }
+
+  const customer = await stripe.customers.create({
+    email: email.toLowerCase(),
+    name,
+    metadata: { userId },
+  });
+
+  await UserModel.updateOne(
+    { _id: userId, $or: [{ stripeCustomerId: { $exists: false } }, { stripeCustomerId: null }] },
+    { $set: { stripeCustomerId: customer.id } }
+  );
+
+  return customer.id;
+}
 
 const checkoutSchema = z.object({
   email: z.string().email(),
@@ -29,6 +66,15 @@ const checkoutSchema = z.object({
   shippingAddress: addressSchema,
   billingAddress: addressSchema.optional(),
   couponCode: z.string().trim().optional(),
+  customerNotes: z.string().trim().max(500).optional(),
+  deliveryInstructions: z.string().trim().max(500).optional(),
+  mode: z.enum(["cart", "buy_now"]).default("cart"),
+});
+
+const quoteSchema = z.object({
+  shippingMethod: z.nativeEnum(ShippingMethod),
+  province: z.string().trim().min(2).max(2),
+  postalCode: z.string().trim().max(10).optional(),
   mode: z.enum(["cart", "buy_now"]).default("cart"),
 });
 
@@ -48,6 +94,7 @@ type CheckoutLine = {
   unitPriceCents: number;
   lineTotalCents: number;
   imageUrl: string | null;
+  maxQuantity?: number;
 };
 
 function orderNumber() {
@@ -109,48 +156,48 @@ async function resolveBuyNowLine(input: {
     unitPriceCents,
     lineTotalCents: unitPriceCents * data.quantity,
     imageUrl: variant.imageUrl ?? product.images?.[0]?.url ?? null,
+    maxQuantity: product.allowBackorder ? 99 : Math.max(1, stock),
   };
 }
 
-async function loadShippingTax(
-  shippingMethod: ShippingMethod,
-  province: string,
-  subtotalCents: number
-) {
+async function loadShippingTax(input: {
+  shippingMethod: ShippingMethod;
+  province: string;
+  postalCode?: string | null;
+  subtotalCents: number;
+  weightGrams?: number;
+  handlingCents?: number;
+}) {
   const settings =
     (await StoreSettingsModel.findOne({ key: "default" }).lean()) ??
     ({
       shipping: {
-        standardCents: 1500,
-        expressCents: 2500,
+        standardCents: 1499,
+        expressCents: 2499,
         freeShippingMinimumCents: 20000,
         localPickupEnabled: true,
+        standardEta: "3–7 business days",
+        expressEta: "1–3 business days",
+        pickupInstructions:
+          "We will confirm pickup readiness by phone or email after your order is paid.",
       },
       taxRules: [] as Array<{ province: string; name: string; rateBps: number }>,
-    } as const);
+    });
 
-  let shippingCents = 0;
-  if (shippingMethod === ShippingMethod.LOCAL_PICKUP) {
-    if (!settings.shipping?.localPickupEnabled) {
-      throw new AppError(400, "PICKUP_DISABLED", "Local pickup is not enabled");
-    }
-    shippingCents = 0;
-  } else if (shippingMethod === ShippingMethod.EXPRESS) {
-    shippingCents = settings.shipping?.expressCents ?? 2500;
-  } else {
-    shippingCents = settings.shipping?.standardCents ?? 1500;
-    if (
-      settings.shipping?.freeShippingMinimumCents &&
-      subtotalCents >= settings.shipping.freeShippingMinimumCents
-    ) {
-      shippingCents = 0;
-    }
-  }
+  const shippingQuote = await quoteShipping({
+    methodCode: input.shippingMethod,
+    province: input.province,
+    postalCode: input.postalCode,
+    eligibleSubtotalCents: input.subtotalCents,
+    weightGrams: input.weightGrams ?? 0,
+    handlingCents: input.handlingCents ?? 0,
+  });
 
+  const shippingCents = shippingQuote.shippingCents;
   const taxRules = (settings.taxRules ?? []).filter(
-    (rule) => rule.province === province
+    (rule) => rule.province === input.province.toUpperCase()
   );
-  const taxable = subtotalCents + shippingCents;
+  const taxable = input.subtotalCents + shippingCents;
   const taxBreakdown = taxRules.map((rule) => ({
     name: rule.name,
     rateBps: rule.rateBps,
@@ -158,7 +205,189 @@ async function loadShippingTax(
   }));
   const taxCents = taxBreakdown.reduce((sum, row) => sum + row.amountCents, 0);
 
-  return { shippingCents, taxCents, taxBreakdown, settings };
+  return {
+    shippingCents,
+    taxCents,
+    taxBreakdown,
+    settings,
+    shippingQuote,
+  };
+}
+
+/** Distribute discount across Stripe unit amounts so session total matches order. */
+function stripeUnitAmountsAfterDiscount(
+  items: CheckoutLine[],
+  discountCents: number
+) {
+  if (discountCents <= 0) {
+    return items.map((item) => ({
+      ...item,
+      stripeUnitAmount: item.unitPriceCents,
+    }));
+  }
+  const subtotal = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  if (subtotal <= 0) {
+    return items.map((item) => ({
+      ...item,
+      stripeUnitAmount: item.unitPriceCents,
+    }));
+  }
+  let remaining = Math.min(discountCents, subtotal);
+  return items.map((item, index) => {
+    const share =
+      index === items.length - 1
+        ? remaining
+        : Math.round((item.lineTotalCents / subtotal) * discountCents);
+    remaining = Math.max(0, remaining - share);
+    const discountedLine = Math.max(0, item.lineTotalCents - share);
+    const stripeUnitAmount = Math.max(
+      0,
+      Math.round(discountedLine / Math.max(1, item.quantity))
+    );
+    return { ...item, stripeUnitAmount };
+  });
+}
+
+async function incrementCouponUsage(code?: string | null) {
+  await incrementCouponUsageAtomic(code);
+}
+
+export async function quoteCheckout(
+  identity: { userId?: string; guestId?: string },
+  input: unknown,
+  buyNow?: { productId: string; variantId: string; quantity: number } | null
+) {
+  const data = quoteSchema.parse(input);
+  let subtotalCents = 0;
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  let itemCount = 0;
+
+  let items: Array<{
+    id: string;
+    productId: string;
+    variantId: string;
+    name: string;
+    sku: string;
+    options: CheckoutLine["options"];
+    quantity: number;
+    unitPriceCents: number;
+    lineTotalCents: number;
+    imageUrl: string | null;
+    maxQuantity?: number;
+  }> = [];
+
+  if (data.mode === "buy_now") {
+    if (!buyNow) {
+      throw new AppError(
+        400,
+        "BUY_NOW_EXPIRED",
+        "Buy Now selection expired. Please select the product again."
+      );
+    }
+    const line = await resolveBuyNowLine(buyNow);
+    subtotalCents = line.lineTotalCents;
+    itemCount = line.quantity;
+    items = [
+      {
+        id: `buy-now-${line.variantId}`,
+        productId: line.productId,
+        variantId: line.variantId,
+        name: line.name,
+        sku: line.sku,
+        options: line.options,
+        quantity: line.quantity,
+        unitPriceCents: line.unitPriceCents,
+        lineTotalCents: line.lineTotalCents,
+        imageUrl: line.imageUrl,
+        maxQuantity: line.maxQuantity ?? 99,
+      },
+    ];
+  } else {
+    const cart = await getCart(identity);
+    if (cart.items.length === 0) {
+      throw new AppError(400, "CART_EMPTY", "Cart is empty");
+    }
+    subtotalCents = cart.subtotalCents;
+    discountCents = cart.discountCents ?? 0;
+    couponCode = cart.couponCode ?? null;
+    itemCount = cart.itemCount;
+    items = cart.items.map((item) => {
+      const rawOptions = (item.options ?? {}) as Record<string, string | undefined>;
+      return {
+        id: item.id,
+        productId: item.productId,
+        variantId: item.variantId,
+        name: item.name,
+        sku: item.sku,
+        options: {
+          size: rawOptions.size,
+          colour: rawOptions.colour,
+          material: rawOptions.material,
+          other: rawOptions.other,
+        },
+        quantity: item.quantity,
+        unitPriceCents: item.unitPriceCents,
+        lineTotalCents: item.lineTotalCents,
+        imageUrl: item.imageUrl ?? null,
+      };
+    });
+  }
+
+  const taxableBase = Math.max(0, subtotalCents - discountCents);
+  const { shippingCents, taxCents, taxBreakdown, settings, shippingQuote } =
+    await loadShippingTax({
+      shippingMethod: data.shippingMethod,
+      province: data.province,
+      postalCode: data.postalCode,
+      subtotalCents: taxableBase,
+    });
+  const totalCents = taxableBase + shippingCents + taxCents;
+
+  const standardMethod = shippingQuote.availableMethods.find(
+    (method) => method.code === ShippingMethod.STANDARD
+  );
+  const expressMethod = shippingQuote.availableMethods.find(
+    (method) => method.code === ShippingMethod.EXPRESS
+  );
+
+  return {
+    itemCount,
+    items,
+    subtotalCents,
+    discountCents,
+    couponCode,
+    shippingCents,
+    taxCents,
+    taxBreakdown,
+    totalCents,
+    currency: "CAD" as const,
+    amountUntilFreeCents: shippingQuote.amountUntilFreeCents,
+    qualifiesForFreeShipping: shippingQuote.qualifiesForFreeShipping,
+    zoneName: shippingQuote.zoneName,
+    availableMethods: shippingQuote.availableMethods.map((method) => ({
+      code: method.code,
+      name: method.name,
+      description: method.description,
+      rateCents: method.rateCents,
+      etaLabel: method.etaLabel,
+      isPickup: method.isPickup,
+      available: method.available,
+      qualifiesForFreeShipping: method.qualifiesForFreeShipping,
+      freeShippingApplied: method.freeShippingApplied,
+    })),
+    shipping: {
+      standardCents:
+        standardMethod?.rateCents ?? settings.shipping?.standardCents ?? 1499,
+      expressCents:
+        expressMethod?.rateCents ?? settings.shipping?.expressCents ?? 2499,
+      freeShippingMinimumCents: shippingQuote.freeShippingMinimumCents,
+      localPickupEnabled: settings.shipping?.localPickupEnabled ?? true,
+      standardEta: standardMethod?.etaLabel ?? settings.shipping?.standardEta,
+      expressEta: expressMethod?.etaLabel ?? settings.shipping?.expressEta,
+      pickupInstructions: settings.shipping?.pickupInstructions,
+    },
+  };
 }
 
 export async function setBuyNowIntent(
@@ -226,25 +455,52 @@ export async function createCheckoutSession(
 
   const subtotalCents = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
 
-  // Prefer the authenticated cart coupon for cart checkout; Buy Now skips coupons.
+  // Re-validate coupon server-side before Stripe session (never trust client totals).
   let discountCents = 0;
   let appliedCoupon: string | undefined;
   if (data.mode !== "buy_now") {
     const cart = await getCart(identity);
-    discountCents = cart.discountCents ?? 0;
-    appliedCoupon = cart.couponCode ?? undefined;
+    const code = cart.couponCode ?? data.couponCode;
+    if (code) {
+      const couponLines = await Promise.all(
+        items.map(async (item) => {
+          const product = await ProductModel.findById(item.productId)
+            .select("categoryId")
+            .lean();
+          return {
+            productId: item.productId,
+            categoryId: product?.categoryId ? String(product.categoryId) : null,
+            lineTotalCents: item.lineTotalCents,
+          };
+        })
+      );
+      const validated = await validateCouponForCart({
+        code,
+        lines: couponLines,
+        userId: identity.userId,
+        email: data.email,
+      });
+      discountCents = validated.discountCents;
+      appliedCoupon = validated.couponCode ?? undefined;
+    }
   }
-  if (data.couponCode && !appliedCoupon) {
-    // Explicit checkout coupon code can be added later; cart coupon is authoritative today.
-    appliedCoupon = data.couponCode.toUpperCase();
+
+  if (data.shippingAddress.country !== "Canada") {
+    throw new AppError(
+      400,
+      "INTERNATIONAL_NOT_SUPPORTED",
+      "We currently ship within Canada only"
+    );
   }
 
   const taxableBase = Math.max(0, subtotalCents - discountCents);
-  const { shippingCents, taxCents, taxBreakdown } = await loadShippingTax(
-    data.shippingMethod,
-    data.shippingAddress.province,
-    taxableBase
-  );
+  const { shippingCents, taxCents, taxBreakdown, shippingQuote } =
+    await loadShippingTax({
+      shippingMethod: data.shippingMethod,
+      province: data.shippingAddress.province,
+      postalCode: data.shippingAddress.postalCode,
+      subtotalCents: taxableBase,
+    });
   const totalCents = taxableBase + shippingCents + taxCents;
   const billing = data.billingAddress ?? data.shippingAddress;
 
@@ -279,11 +535,14 @@ export async function createCheckoutSession(
     billingAddress: billing,
     shippingAddress: data.shippingAddress,
     shippingMethod: data.shippingMethod,
+    shippingSnapshot: shippingQuote.snapshot,
+    deliveryInstructions: data.deliveryInstructions || undefined,
     paymentStatus: PaymentStatus.PENDING,
     fulfillmentStatus: FulfillmentStatus.PENDING_PAYMENT,
     couponCode: appliedCoupon,
     discountCents,
     taxBreakdown,
+    customerNotes: data.customerNotes || undefined,
     inventoryReserved: false,
     events: [
       {
@@ -352,19 +611,28 @@ export async function createCheckoutSession(
   }
 
   const stripe = new Stripe(env.STRIPE_SECRET_KEY);
+  const pricedItems = stripeUnitAmountsAfterDiscount(items, discountCents);
+  const stripeCustomerId = await resolveStripeCustomerId(
+    stripe,
+    identity.userId,
+    data.email,
+    `${data.shippingAddress.firstName} ${data.shippingAddress.lastName}`.trim()
+  );
   let session: Stripe.Checkout.Session;
   try {
     session = await stripe.checkout.sessions.create({
       mode: "payment",
-      customer_email: data.email,
+      ...(stripeCustomerId
+        ? { customer: stripeCustomerId }
+        : { customer_email: data.email }),
       success_url: `${env.WEB_ORIGIN}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${env.WEB_ORIGIN}/checkout/cancelled?order=${order.orderNumber}`,
       line_items: [
-        ...items.map((item) => ({
+        ...pricedItems.map((item) => ({
           quantity: item.quantity,
           price_data: {
             currency: "cad",
-            unit_amount: item.unitPriceCents,
+            unit_amount: item.stripeUnitAmount,
             product_data: {
               name: item.name,
               metadata: {
@@ -477,6 +745,7 @@ async function finalizeDevPaidOrder(params: {
     message: reason,
   });
   await order.save();
+  await incrementCouponUsage(order.couponCode);
 
   await PaymentModel.create({
     orderId: order._id,
@@ -590,6 +859,7 @@ export async function markOrderPaidFromStripe(params: {
     message: "Payment verified via Stripe webhook",
   });
   await order.save();
+  await incrementCouponUsage(order.couponCode);
 
   await PaymentModel.findOneAndUpdate(
     {

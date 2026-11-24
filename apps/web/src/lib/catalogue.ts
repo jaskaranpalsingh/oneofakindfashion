@@ -21,7 +21,12 @@ export type ProductDetail = ProductSummary & {
   tags: string[];
   clothing: Record<string, unknown> | null;
   jewellery: Record<string, unknown> | null;
-  images: Array<{ url: string; alt?: string; sortOrder?: number }>;
+  images: Array<{
+    url: string;
+    alt?: string;
+    sortOrder?: number;
+    isPrimary?: boolean;
+  }>;
   variants: Array<{
     id: string;
     sku: string;
